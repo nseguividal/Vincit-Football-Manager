@@ -1,0 +1,40 @@
+# Dependències
+node_modules
+.pnp
+.pnp.js
+
+# Build i sortides
+dist
+dist-ssr
+*.local
+
+# Variables d'entorn i secrets (MAI pujar claus reals a GitHub)
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+*.env
+!*.env.example
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Fitxers del sistema operatiu i editors
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+.idea
+.vscode
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
