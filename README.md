@@ -12,10 +12,6 @@ cada jornada.
 | Frontend | React + Vite + Tailwind | Desplegat a **Vercel** |
 | Backend / Base de dades | **Supabase** (Postgres + Auth) | Gratuït, al núvol |
 
-GitHub Pages només serveix fitxers estàtics i no pot fer autenticació real ni
-guardar dades de formularis — per això el backend és Supabase (pla gratuït,
-sense targeta). El frontend es desplega a Vercel perquè s'integra en 2 minuts
-i és igual de gratuït.
 
 ## Estructura del projecte
 
@@ -50,7 +46,7 @@ vincit-manager/
 │       └── Admin.jsx       # Dashboard de l'administrador
 ```
 
-## 1. Crear el backend (Supabase) — 10 minuts
+## 1. Crear el backend (Supabase) 
 
 1. Crea un compte gratuït a **https://supabase.com** i un nou projecte.
 2. Ves a **SQL Editor** i executa, per aquest ordre, el contingut de:
