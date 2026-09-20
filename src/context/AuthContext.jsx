@@ -15,10 +15,21 @@ export function AuthProvider({ children }) {
     }
     const { data, error } = await supabase
       .from('managers')
-      .select('*')
+      .select(`
+        *,
+        coach_assignments (
+          team_id,
+          club_teams ( id, name )
+        )
+      `)
       .eq('user_id', userId)
       .single()
-    if (!error) setManager(data)
+    if (!error && data) {
+      setManager(data)
+    } else {
+      const { data: fbData } = await supabase.from('managers').select('*').eq('user_id', userId).single()
+      if (fbData) setManager(fbData)
+    }
   }, [])
 
   useEffect(() => {
@@ -66,6 +77,7 @@ export function AuthProvider({ children }) {
     loading,
     isAdmin: !!manager?.is_admin,
     isCoach: !!manager?.is_coach,
+    isPlayer: !manager?.is_admin && !manager?.is_coach,
     login,
     logout,
     verifyPassword,

@@ -44,6 +44,7 @@ create table matchdays (
   starts_at     date not null,
   ends_at       date not null,
   is_current    boolean not null default false, -- només una ha de ser true
+  is_extra      boolean not null default false, -- jornada extra (no suma punts a la classificació)
   created_at    timestamptz not null default now()
 );
 
@@ -59,6 +60,7 @@ create table managers (
   budget        numeric not null default 100, -- diners disponibles (milions fantasy)
   is_admin      boolean not null default false,
   is_coach      boolean not null default false,
+  player_team_id uuid references club_teams(id) on delete set null, -- equip del club on juga (rol jugador)
   created_at    timestamptz not null default now()
 );
 
@@ -144,6 +146,7 @@ create or replace view v_weekly_scores as
 select
   m.id            as manager_id,
   m.display_name  as display_name,
+  m.avatar_emoji  as avatar_emoji,
   md.id           as matchday_id,
   md.number       as matchday_number,
   coalesce(sum(pms.points), 0) as points
@@ -153,13 +156,14 @@ left join lineup_slots ls on ls.manager_id = m.id
 left join fantasy_cards fc on fc.id = ls.fantasy_card_id
 left join player_matchday_stats pms
   on pms.club_player_id = fc.club_player_id and pms.matchday_id = md.id
-group by m.id, m.display_name, md.id, md.number;
+where md.is_extra = false or md.is_extra is null
+group by m.id, m.display_name, m.avatar_emoji, md.id, md.number;
 
 -- Classificació general (suma de totes les jornades fins ara)
 create or replace view v_total_standings as
-select manager_id, display_name, sum(points) as total_points
+select manager_id, display_name, avatar_emoji, sum(points) as total_points
 from v_weekly_scores
-group by manager_id, display_name
+group by manager_id, display_name, avatar_emoji
 order by total_points desc;
 
 -- ----------------------------------------------------------------------------

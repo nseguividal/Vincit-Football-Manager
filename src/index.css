@@ -63,3 +63,15 @@ h1, h2, h3, .font-display {
   transition: background-color 0.15s ease;
 }
 .btn-ghost:hover { background-color: #1A2540; }
+.btn-ghost:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* Remove spin buttons and steppers from all number inputs */
+input[type=number]::-webkit-inner-spin-button,
+input[type=number]::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+input[type=number] {
+  -moz-appearance: textfield;
+}
+

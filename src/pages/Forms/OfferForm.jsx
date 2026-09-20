@@ -3,6 +3,7 @@ import { useSearchParams } from 'react-router-dom'
 import { supabase } from '../../lib/supabaseClient'
 import { useAuth } from '../../context/AuthContext'
 import ConfirmPasswordField from '../../components/ConfirmPasswordField'
+import Toast from '../../components/Toast'
 
 export default function OfferForm() {
   const { manager, verifyPassword } = useAuth()
@@ -48,17 +49,22 @@ export default function OfferForm() {
   }
 
   return (
-    <form onSubmit={handleSubmit} className="card p-6 space-y-4">
+    <form onSubmit={handleSubmit} className="card p-4 sm:p-6 space-y-4">
       <div>
-        <h2 className="font-display font-semibold">Fer una oferta</h2>
-        <p className="text-sm text-ink-dim mt-1">
+        <h2 className="font-display font-semibold text-lg text-ink">Fer una oferta</h2>
+        <p className="text-xs sm:text-sm text-ink-dim mt-1">
           Tria un jugador del mercat i indica quants milions vols oferir.
         </p>
       </div>
 
       <div>
-        <label className="text-xs text-ink-dim mb-1 block">Jugador</label>
-        <select className="input" value={cardId} onChange={(e) => setCardId(e.target.value)} required>
+        <label className="text-xs text-ink-dim mb-1 block">Jugador *</label>
+        <select
+          className="input text-sm min-h-[44px]"
+          value={cardId}
+          onChange={(e) => setCardId(e.target.value)}
+          required
+        >
           <option value="" disabled>Selecciona un jugador del mercat…</option>
           {listings.map((c) => (
             <option key={c.id} value={c.id}>
@@ -69,12 +75,12 @@ export default function OfferForm() {
       </div>
 
       <div>
-        <label className="text-xs text-ink-dim mb-1 block">La teva oferta (milions)</label>
+        <label className="text-xs text-ink-dim mb-1 block">La teva oferta (milions) *</label>
         <input
           type="number"
           min="0.5"
           step="0.5"
-          className="input"
+          className="input text-sm min-h-[44px]"
           value={amount}
           onChange={(e) => setAmount(e.target.value)}
           required
@@ -83,11 +89,13 @@ export default function OfferForm() {
 
       <ConfirmPasswordField value={password} onChange={setPassword} />
 
-      {status && (
-        <p className={`text-sm ${status.type === 'ok' ? 'text-ok' : 'text-danger'}`}>{status.msg}</p>
-      )}
+      <Toast
+        message={status?.msg}
+        type={status?.type || 'ok'}
+        onClose={() => setStatus(null)}
+      />
 
-      <button type="submit" disabled={submitting} className="btn-primary w-full">
+      <button type="submit" disabled={submitting} className="btn-primary w-full min-h-[44px] text-sm font-semibold">
         {submitting ? 'Enviant…' : 'Enviar oferta'}
       </button>
     </form>

@@ -16,7 +16,7 @@ export default function App() {
       <Route
         path="/*"
         element={
-          <div className="flex">
+          <div className="flex flex-col md:flex-row min-h-screen">
             <Sidebar />
             <main className="flex-1 min-w-0">
               <Routes>
@@ -27,7 +27,7 @@ export default function App() {
                 <Route
                   path="/formularis"
                   element={
-                    <ProtectedRoute>
+                    <ProtectedRoute requireCoachOrAdmin>
                       <Forms />
                     </ProtectedRoute>
                   }

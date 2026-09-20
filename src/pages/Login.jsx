@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
+import ClubLogo from '../components/ClubLogo'
 
 export default function Login() {
   const { login } = useAuth()
@@ -15,7 +16,7 @@ export default function Login() {
     setError('')
     setLoading(true)
     try {
-      await login(username, password)
+      await login(username.trim().toLowerCase(), password)
       navigate('/')
     } catch (err) {
       setError('Usuari o contrasenya incorrectes.')
@@ -47,20 +48,33 @@ export default function Login() {
 
       <form onSubmit={handleSubmit} className="card w-full max-w-sm p-8">
         <div className="flex flex-col items-center mb-6">
-          <div className="w-12 h-12 rounded-xl bg-accent flex items-center justify-center text-2xl mb-3">⚽</div>
-          <h1 className="font-display text-xl font-semibold">Vincit Manager</h1>
+          <div className="mb-3">
+            <ClubLogo className="w-16 h-16" rounded="rounded-2xl" />
+          </div>
+          <h1 className="font-display text-xl font-semibold">Vincit Fantasy</h1>
           <p className="text-sm text-ink-dim mt-1">Entra amb el teu usuari del club</p>
         </div>
 
-        <label className="text-xs text-ink-dim mb-1 block">Usuari</label>
-        <input
-          className="input mb-4"
-          value={username}
-          onChange={(e) => setUsername(e.target.value)}
-          placeholder="p.ex. jordi"
-          autoComplete="username"
-          required
-        />
+        <div className="mb-4">
+          <div className="flex items-center justify-between mb-1">
+            <label className="text-xs text-ink-dim block">Usuari</label>
+            <span className="text-[11px] text-accent font-medium">Tot en minúscules</span>
+          </div>
+          <input
+            className="input"
+            value={username}
+            onChange={(e) => setUsername(e.target.value.toLowerCase())}
+            placeholder="p.ex. jordi"
+            autoCapitalize="none"
+            autoCorrect="off"
+            spellCheck="false"
+            autoComplete="username"
+            required
+          />
+          <p className="text-[11px] text-ink-dim mt-1 flex items-center gap-1">
+            <span>💡</span> Recorda escriure l'usuari en minúscules.
+          </p>
+        </div>
 
         <label className="text-xs text-ink-dim mb-1 block">Contrasenya</label>
         <input

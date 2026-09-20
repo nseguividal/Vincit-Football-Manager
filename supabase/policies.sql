@@ -39,7 +39,15 @@ create policy "read_all_lineups"      on lineup_slots for select using (true);
 create policy "read_all_stats"        on player_matchday_stats for select using (true);
 create policy "read_all_log"          on activity_log for select using (true);
 create policy "read_own_offers"       on transfer_offers for select
-  using (bidder_manager_id = current_manager_id() or is_current_user_admin());
+  using (
+    bidder_manager_id = current_manager_id()
+    or is_current_user_admin()
+    or exists (
+      select 1 from fantasy_cards fc
+      where fc.id = transfer_offers.fantasy_card_id
+        and fc.owner_manager_id = current_manager_id()
+    )
+  );
 create policy "read_coach_assign"     on coach_assignments for select using (true);
 
 -- ---------- ESCRIPTURA: MANAGERS ----------
@@ -58,6 +66,8 @@ create policy "manage_own_lineup" on lineup_slots for all
 create policy "create_own_offer" on transfer_offers for insert
   with check (bidder_manager_id = current_manager_id() or is_current_user_admin());
 create policy "update_own_offer" on transfer_offers for update
+  using (bidder_manager_id = current_manager_id() or is_current_user_admin());
+create policy "delete_own_offer" on transfer_offers for delete
   using (bidder_manager_id = current_manager_id() or is_current_user_admin());
 
 -- ---------- ESCRIPTURA: FANTASY_CARDS (venda / compra / mercat) ----------

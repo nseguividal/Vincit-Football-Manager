@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { supabase } from '../../lib/supabaseClient'
 import { useAuth } from '../../context/AuthContext'
 import ConfirmPasswordField from '../../components/ConfirmPasswordField'
+import Toast from '../../components/Toast'
 
 export default function SellForm() {
   const { manager, verifyPassword } = useAuth()
@@ -49,17 +50,22 @@ export default function SellForm() {
   }
 
   return (
-    <form onSubmit={handleSubmit} className="card p-6 space-y-4">
+    <form onSubmit={handleSubmit} className="card p-4 sm:p-6 space-y-4">
       <div>
-        <h2 className="font-display font-semibold">Vendre un jugador</h2>
-        <p className="text-sm text-ink-dim mt-1">
+        <h2 className="font-display font-semibold text-lg text-ink">Vendre un jugador</h2>
+        <p className="text-xs sm:text-sm text-ink-dim mt-1">
           El jugador apareixerà al mercat de fitxatges durant 2 dies.
         </p>
       </div>
 
       <div>
-        <label className="text-xs text-ink-dim mb-1 block">Jugador de la teva plantilla</label>
-        <select className="input" value={cardId} onChange={(e) => setCardId(e.target.value)} required>
+        <label className="text-xs text-ink-dim mb-1 block">Jugador de la teva plantilla *</label>
+        <select
+          className="input text-sm min-h-[44px]"
+          value={cardId}
+          onChange={(e) => setCardId(e.target.value)}
+          required
+        >
           <option value="" disabled>Selecciona…</option>
           {myCards.map((c) => (
             <option key={c.id} value={c.id}>
@@ -73,12 +79,12 @@ export default function SellForm() {
       </div>
 
       <div>
-        <label className="text-xs text-ink-dim mb-1 block">Preu de venda (milions)</label>
+        <label className="text-xs text-ink-dim mb-1 block">Preu de venda (milions) *</label>
         <input
           type="number"
           min="0.5"
           step="0.5"
-          className="input"
+          className="input text-sm min-h-[44px]"
           value={price}
           onChange={(e) => setPrice(e.target.value)}
           required
@@ -87,11 +93,13 @@ export default function SellForm() {
 
       <ConfirmPasswordField value={password} onChange={setPassword} />
 
-      {status && (
-        <p className={`text-sm ${status.type === 'ok' ? 'text-ok' : 'text-danger'}`}>{status.msg}</p>
-      )}
+      <Toast
+        message={status?.msg}
+        type={status?.type || 'ok'}
+        onClose={() => setStatus(null)}
+      />
 
-      <button type="submit" disabled={submitting || !cardId} className="btn-primary w-full">
+      <button type="submit" disabled={submitting || !cardId} className="btn-primary w-full min-h-[44px] text-sm font-semibold">
         {submitting ? 'Publicant…' : 'Posar a la venda'}
       </button>
     </form>

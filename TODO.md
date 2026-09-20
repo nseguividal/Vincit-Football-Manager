@@ -1,12 +1,20 @@
 Llistat de les coses que encara cal fer: 
 
-- Llistat de jugadors i equips 
-
-- Arreglar l'opció que els entrenadors puguin pujar punts dels seus jugadors 
 
 - Decidir que quan acaba la jornada, quants punts se li donin a cadascú (fer algun tipus de mates allà) i que l'adminitrador pugui boostejar-ho o no per un factor si ho creu convenient 
 
 - Mirar que el ranquing per punts funcioni 
+
+-Implementar que els entrenadors no puguin fitxar a jugadors del seu equip 
+
+- Afegir el rol de 1r entrenador (pots introduir dades dels seus jugadors directament) i el rol de 2n entrenador (pot afegir dades dels seus jugadors pero han de ser acceptades per l'entrenador principal)(així en cas que el principal no pugui anar al partit)
+
+- No es poden fer canvis quan la jornada esta en curs (posar dia i hora tant al començar la jornada com a l'acabar)
+
+- Implementar puntuació automàtica de jugadors atenent al feedback de l'entrenador 
+
+
+
 
 
 
@@ -19,6 +27,13 @@ Per treure feina al Nestor (extres):
 
 - Sistema que fagi augmentar o disminuir el preu d'un jugador segons els punts que guanyi en les ultimes jornades. 
 
+
+
+
+
+
+EXTRES A AFEGIR: 
+- Escollir el capità cada jornada (puntuarà doble)
 
 
 

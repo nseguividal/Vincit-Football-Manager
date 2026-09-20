@@ -11,9 +11,9 @@ export default {
           border: '#243252',
         },
         pitch: {
-          light: '#0F6B4C',
-          dark: '#0A4F38',
-          line: 'rgba(255,255,255,0.55)',
+          light: '#38BDF8',
+          dark: '#0284C7',
+          line: 'rgba(255,255,255,0.65)',
         },
         accent: {
           DEFAULT: '#F2B84B',   // ambre — identitat del club
