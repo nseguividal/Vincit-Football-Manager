@@ -9,6 +9,16 @@
  */
 
 // ----------------------------------------------------------------------------
+// 0. CONFIGURACIÓ DE MODES DE JOC
+// ----------------------------------------------------------------------------
+export const MOCK_GAME_SETTINGS = {
+  market_mode: 'active', // 'active' (Mercat actiu) | 'no_market' (Sense Mercat)
+  anonymous_bids: true,
+  default_auction_days: 3,
+  max_players_mode: false,
+}
+
+// ----------------------------------------------------------------------------
 // 1. EQUIPS DEL CLUB
 // ----------------------------------------------------------------------------
 export const MOCK_TEAMS = [

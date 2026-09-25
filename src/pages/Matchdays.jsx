@@ -760,28 +760,7 @@ export default function Matchdays() {
           </div>
         ) : matchdayStatus.isFuture && !matchdayStatus.hasStats ? (
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-            {/* Columna Esquerra: Camp de futbol buit (sense jugadors) */}
-            <div className="lg:col-span-5 card p-4 sm:p-6 space-y-4">
-              <div className="flex items-center justify-between border-b border-base-border/70 pb-3">
-                <div>
-                  <h3 className="font-display font-bold text-base text-ink flex items-center gap-1.5">
-                    <span>🏟️</span> Cinc Titular
-                  </h3>
-                  <p className="text-xs text-ink-dim mt-0.5">
-                    Alineació de la jornada
-                  </p>
-                </div>
-                <span className="text-[11px] text-amber-400 font-medium">
-                  ⏳ Pendent d'inici
-                </span>
-              </div>
-
-              <div className="pt-1">
-                <Pitch slots={{}} />
-              </div>
-            </div>
-
-            {/* Columna Dreta: Missatge de jornada no començada i botó de Calendari */}
+            {/* Columna Esquerra: Missatge de jornada no començada i botó de Calendari */}
             <div className="lg:col-span-7 card p-8 sm:p-14 text-center flex flex-col items-center justify-center space-y-4 min-h-[380px] border-dashed">
               <div className="w-16 h-16 rounded-full bg-accent/10 border border-accent/30 text-accent text-3xl flex items-center justify-center mx-auto">
                 ⏳
@@ -805,73 +784,34 @@ export default function Matchdays() {
                 </button>
               </div>
             </div>
+
+            {/* Columna Dreta: Camp de futbol buit (sense jugadors) */}
+            <div className="lg:col-span-5 card p-4 sm:p-6 space-y-4">
+              <div className="flex items-center justify-between border-b border-base-border/70 pb-3">
+                <div>
+                  <h3 className="font-display font-bold text-base text-ink flex items-center gap-1.5">
+                    <span>🏟️</span> Cinc Titular
+                  </h3>
+                  <p className="text-xs text-ink-dim mt-0.5">
+                    Alineació de la jornada
+                  </p>
+                </div>
+                <span className="text-[11px] text-amber-400 font-medium">
+                  ⏳ Pendent d'inici
+                </span>
+              </div>
+
+              <div className="pt-1">
+                <Pitch slots={{}} />
+              </div>
+            </div>
           </div>
         ) : (
           /* ESTAT: Jornada jugada o en curs */
           <div className="space-y-6">
-            {/* Grid Principal: Camp 5 Titular + Classificació de la Jornada */}
+            {/* Grid Principal: Classificació de la Jornada (Esquerra) + Camp 5 Titular (Dreta) */}
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-              {/* Columna Esquerra: Dibuix del Camp de Futbol (Pitch) */}
-              <div className="lg:col-span-5 card p-4 sm:p-6 space-y-4">
-                <div className="flex items-center justify-between border-b border-base-border/70 pb-3">
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <h3 className="font-display font-bold text-base text-ink flex items-center gap-1.5">
-                        <span>🏟️</span> Cinc Titular
-                      </h3>
-                      {activeManagerData && (
-                        <span className="text-xs text-ink-dim font-medium">
-                          ({activeManagerData.manager.display_name}{activeManagerData.manager.id === manager?.id ? ' · Tu' : ''})
-                        </span>
-                      )}
-                    </div>
-                    <p className="text-xs text-ink-dim mt-0.5">
-                      Puntuacions individuals d'aquesta jornada
-                    </p>
-                  </div>
-                  <span className="text-[11px] text-ink-faint">
-                    {matchdayStatus.isInProgress ? '⏳ En curs' : matchdayStatus.isFinished ? '✓ Finalitzat' : '⏳ Propera'}
-                  </span>
-                </div>
-
-                {/* Punts i Posició de la jornada directament a sota del títol */}
-                {activeManagerData && (
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="p-3 rounded-xl bg-base-surface border border-base-border text-center">
-                      <p className="text-[11px] text-ink-dim font-semibold uppercase tracking-wider">Punts</p>
-                      <p className="text-xl sm:text-2xl font-display font-bold text-yellow-400 mt-0.5" style={{ color: '#FACC15' }}>
-                        {activeManagerData.matchdayPoints}
-                        <span className="text-xs font-normal text-ink-dim ml-1">pts</span>
-                      </p>
-                    </div>
-
-                    <div className="p-3 rounded-xl bg-base-surface border border-base-border text-center">
-                      <p className="text-[11px] text-ink-dim font-semibold uppercase tracking-wider">Posició</p>
-                      <p className="text-xl sm:text-2xl font-display font-bold text-white mt-0.5">
-                        {activeManagerRank}
-                      </p>
-                    </div>
-                  </div>
-                )}
-
-                <div className="pt-1">
-                  <Pitch slots={pitchSlots} />
-                </div>
-
-                <div className="p-3 rounded-xl bg-base-surface/80 border border-base-border text-[11px] text-ink-dim flex items-center justify-between">
-                  <span className="flex items-center gap-1">
-                    <span className="w-2.5 h-2.5 rounded-full bg-yellow-400 inline-block"></span> Punts jornada
-                  </span>
-                  <span className="flex items-center gap-1">
-                    <span className="w-2.5 h-2.5 rounded-full bg-slate-700 text-amber-300 text-[8px] flex items-center justify-center font-bold">⏳</span> Pendent
-                  </span>
-                  <span className="flex items-center gap-1">
-                    <span className="w-2.5 h-2.5 rounded-full bg-zinc-800 text-zinc-400 text-[8px] flex items-center justify-center font-bold">—</span> No ha jugat
-                  </span>
-                </div>
-              </div>
-
-              {/* Columna Dreta: Classificació de la Jornada */}
+              {/* Columna Esquerra: Classificació de la Jornada */}
               <div className="lg:col-span-7 card p-4 sm:p-6 space-y-4">
                 <div className="flex items-center justify-between border-b border-base-border/70 pb-3">
                   <div>
@@ -941,6 +881,66 @@ export default function Matchdays() {
                       })}
                     </tbody>
                   </table>
+                </div>
+              </div>
+
+              {/* Columna Dreta: Dibuix del Camp de Futbol (Pitch) */}
+              <div className="lg:col-span-5 card p-4 sm:p-6 space-y-4">
+                <div className="flex items-center justify-between border-b border-base-border/70 pb-3">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h3 className="font-display font-bold text-base text-ink flex items-center gap-1.5">
+                        <span>🏟️</span> Cinc Titular
+                      </h3>
+                      {activeManagerData && (
+                        <span className="text-xs text-ink-dim font-medium">
+                          ({activeManagerData.manager.display_name}{activeManagerData.manager.id === manager?.id ? ' · Tu' : ''})
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-xs text-ink-dim mt-0.5">
+                      Puntuacions individuals d'aquesta jornada
+                    </p>
+                  </div>
+                  <span className="text-[11px] text-ink-faint">
+                    {matchdayStatus.isInProgress ? '⏳ En curs' : matchdayStatus.isFinished ? '✓ Finalitzat' : '⏳ Propera'}
+                  </span>
+                </div>
+
+                {/* Punts i Posició de la jornada directament a sota del títol */}
+                {activeManagerData && (
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="p-3 rounded-xl bg-base-surface border border-base-border text-center">
+                      <p className="text-[11px] text-ink-dim font-semibold uppercase tracking-wider">Punts</p>
+                      <p className="text-xl sm:text-2xl font-display font-bold text-yellow-400 mt-0.5" style={{ color: '#FACC15' }}>
+                        {activeManagerData.matchdayPoints}
+                        <span className="text-xs font-normal text-ink-dim ml-1">pts</span>
+                      </p>
+                    </div>
+
+                    <div className="p-3 rounded-xl bg-base-surface border border-base-border text-center">
+                      <p className="text-[11px] text-ink-dim font-semibold uppercase tracking-wider">Posició</p>
+                      <p className="text-xl sm:text-2xl font-display font-bold text-white mt-0.5">
+                        {activeManagerRank}
+                      </p>
+                    </div>
+                  </div>
+                )}
+
+                <div className="pt-1">
+                  <Pitch slots={pitchSlots} />
+                </div>
+
+                <div className="p-3 rounded-xl bg-base-surface/80 border border-base-border text-[11px] text-ink-dim flex items-center justify-between">
+                  <span className="flex items-center gap-1">
+                    <span className="w-2.5 h-2.5 rounded-full bg-yellow-400 inline-block"></span> Punts jornada
+                  </span>
+                  <span className="flex items-center gap-1">
+                    <span className="w-2.5 h-2.5 rounded-full bg-slate-700 text-amber-300 text-[8px] flex items-center justify-center font-bold">⏳</span> Pendent
+                  </span>
+                  <span className="flex items-center gap-1">
+                    <span className="w-2.5 h-2.5 rounded-full bg-zinc-800 text-zinc-400 text-[8px] flex items-center justify-center font-bold">—</span> No ha jugat
+                  </span>
                 </div>
               </div>
             </div>

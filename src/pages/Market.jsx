@@ -4,6 +4,7 @@ import { supabase } from '../lib/supabaseClient'
 import { useAuth } from '../context/AuthContext'
 import { resolveExpiredMarketListings } from '../lib/marketUtils'
 import { getMockMarketData } from '../lib/mockData'
+import { fetchGameSettings, DEFAULT_GAME_SETTINGS } from '../lib/settingsUtils'
 import Topbar from '../components/Topbar'
 import Toast from '../components/Toast'
 import Jersey from '../components/Jersey'
@@ -21,6 +22,19 @@ function timeLeft(expiresAt) {
   if (hours > 0) return `${hours}h ${minutes}m`
   if (minutes > 0) return `${minutes}m`
   return '< 1m'
+}
+
+function formatRelativeTime(dateString) {
+  if (!dateString) return ''
+  const diffMs = Date.now() - new Date(dateString).getTime()
+  if (diffMs <= 0) return 'Ara mateix'
+  const mins = Math.floor(diffMs / (1000 * 60))
+  if (mins < 1) return 'Ara mateix'
+  if (mins < 60) return `fa ${mins} min`
+  const hours = Math.floor(mins / 60)
+  if (hours < 24) return `fa ${hours}h`
+  const days = Math.floor(hours / 24)
+  return `fa ${days}d`
 }
 
 function getPlayerTotalPoints(player) {
@@ -51,7 +65,40 @@ export default function Market() {
   const [listings, setListings] = useState([])
   const [sentOffers, setSentOffers] = useState([])
   const [receivedOffers, setReceivedOffers] = useState([])
+  const [allMarketOffers, setAllMarketOffers] = useState([])
+  const [mySquadCount, setMySquadCount] = useState(0)
+  const [settings, setSettings] = useState(DEFAULT_GAME_SETTINGS)
   const [loading, setLoading] = useState(true)
+  const [showAuctionInfo, setShowAuctionInfo] = useState(() => {
+    return localStorage.getItem('fantasy_hide_auction_info') !== 'true'
+  })
+  const [showMaxPlayersInfo, setShowMaxPlayersInfo] = useState(() => {
+    return localStorage.getItem('fantasy_hide_max_players_info') !== 'true'
+  })
+
+  function handleCloseAuctionInfo() {
+    setShowAuctionInfo(false)
+    localStorage.setItem('fantasy_hide_auction_info', 'true')
+  }
+
+  function handleCloseMaxPlayersInfo() {
+    setShowMaxPlayersInfo(false)
+    localStorage.setItem('fantasy_hide_max_players_info', 'true')
+  }
+
+  function handleToggleInfo() {
+    if (!showAuctionInfo || !showMaxPlayersInfo) {
+      setShowAuctionInfo(true)
+      setShowMaxPlayersInfo(true)
+      localStorage.removeItem('fantasy_hide_auction_info')
+      localStorage.removeItem('fantasy_hide_max_players_info')
+    } else {
+      setShowAuctionInfo(false)
+      setShowMaxPlayersInfo(false)
+      localStorage.setItem('fantasy_hide_auction_info', 'true')
+      localStorage.setItem('fantasy_hide_max_players_info', 'true')
+    }
+  }
 
   // Modals
   const [selectedCardForOffer, setSelectedCardForOffer] = useState(null)
@@ -67,10 +114,16 @@ export default function Market() {
   async function loadData() {
     setLoading(true)
     try {
+      // Carregar configuració de joc
+      const gameSettings = await fetchGameSettings()
+      setSettings(gameSettings)
+
       if (!manager) {
         setListings(getMockMarketData())
         setSentOffers([])
         setReceivedOffers([])
+        setAllMarketOffers([])
+        setMySquadCount(0)
         setLoading(false)
         return
       }
@@ -228,6 +281,32 @@ export default function Market() {
         } catch (e) {
           console.warn('Avís carregant ofertes rebudes:', e)
         }
+
+        // 3. Carregar nombre de jugadors en propietat del manager
+        try {
+          const { count } = await supabase
+            .from('fantasy_cards')
+            .select('id', { count: 'exact', head: true })
+            .eq('owner_manager_id', manager.id)
+          setMySquadCount(count || 0)
+        } catch (e) {
+          console.warn('Avís comptant plantilla:', e)
+        }
+      }
+
+      // 4. Carregar totes les ofertes pendents del mercat per comptabilitzar o mostrar pujes
+      try {
+        const { data: allOffers } = await supabase
+          .from('transfer_offers')
+          .select(`
+            id, fantasy_card_id, amount, status, created_at, bidder_manager_id,
+            managers:bidder_manager_id ( id, display_name, avatar_emoji )
+          `)
+          .eq('status', 'pending')
+          .order('amount', { ascending: false })
+        setAllMarketOffers(allOffers || [])
+      } catch (e) {
+        console.warn('Avís carregant ofertes globals del mercat:', e)
       }
     } catch (err) {
       console.error('Error general carregant dades del mercat:', err)
@@ -255,7 +334,11 @@ export default function Market() {
   // Llistat filtrat de vendes
   const filteredListings = useMemo(() => {
     const now = Date.now()
+    const isNoMarket = settings.market_mode === 'no_market'
     return listings.filter((card) => {
+      // Si estem en mode subhastes ('no_market'), amagar totes les fitxes posades a la venda per managers (només subhastes oficials del club)
+      if (isNoMarket && card.owner_manager_id) return false
+
       // Excloure jugadors que ja hagin expirat del mercat
       if (card.market_expires_at) {
         const expTime = new Date(card.market_expires_at).getTime()
@@ -267,7 +350,7 @@ export default function Market() {
       const teamMatch = teamFilter === 'ALL' || player?.club_teams?.id === teamFilter
       return nameMatch && posMatch && teamMatch
     })
-  }, [listings, searchTerm, posFilter, teamFilter])
+  }, [listings, searchTerm, posFilter, teamFilter, settings.market_mode])
 
   // Equips prohibits per a fitxatges de l'usuari actual (el seu propi equip o els que entrena)
   const forbiddenTeamIds = useMemo(() => {
@@ -290,6 +373,17 @@ export default function Market() {
       (o) => o.fantasy_card_id === cardId && (o.status === 'pending' || o.status === 'countered')
     )
   }
+
+  // Mapatge d'ofertes/pujes per cada fitxa del mercat
+  const bidsByCardId = useMemo(() => {
+    const map = new Map()
+    allMarketOffers.forEach((o) => {
+      const arr = map.get(o.fantasy_card_id) || []
+      arr.push(o)
+      map.set(o.fantasy_card_id, arr)
+    })
+    return map
+  }, [allMarketOffers])
 
   // Total de diners compromesos en totes les ofertes actives enviades
   const totalCommittedOffers = useMemo(() => {
@@ -335,15 +429,17 @@ export default function Market() {
   function openAcceptReceivedOfferModal(offer) {
     const card = offer.fantasy_cards
     const player = card?.club_players
-    const bidder = offer.managers
-    const buyerName = bidder?.display_name || 'El comprador'
+    const isClubOffer = !offer.bidder_manager_id
+    const bidder = offer.managers || (isClubOffer ? { display_name: '🏛️ El Club', avatar_emoji: '🏛️' } : null)
+    const buyerName = isClubOffer ? '🏛️ El Club' : (bidder?.display_name || 'El comprador')
+    const buyerEmoji = isClubOffer ? '🏛️' : (bidder?.avatar_emoji || '👤')
     const playerName = player?.full_name || 'el jugador'
     const amount = offer.amount
 
     setConfirmModal({
-      icon: '🤝',
-      title: "Acceptar oferta de traspàs",
-      subtitle: "Estàs a punt de vendre aquest jugador",
+      icon: isClubOffer ? '🏛️' : '🤝',
+      title: isClubOffer ? "Acceptar oferta del Club" : "Acceptar oferta de traspàs",
+      subtitle: isClubOffer ? "Venda oficial al Club" : "Estàs a punt de vendre aquest jugador",
       playerName,
       teamName: player?.club_teams?.name,
       position: player?.position,
@@ -351,28 +447,45 @@ export default function Market() {
       amountLabel: "Preu de venda",
       partyLabel: "Comprador",
       partyName: buyerName,
-      partyEmoji: bidder?.avatar_emoji || '👤',
-      description: `En acceptar, ${playerName} serà traspassat immediatament a ${buyerName} i rebràs ${amount}M directament al teu pressupost.`,
+      partyEmoji: buyerEmoji,
+      description: isClubOffer
+        ? `En acceptar, ${playerName} tornarà a la borsa de jugadors del club (sense propietari) i rebràs ${amount}M directament al teu pressupost.`
+        : `En acceptar, ${playerName} serà traspassat immediatament a ${buyerName} i rebràs ${amount}M directament al teu pressupost.`,
       confirmText: `✓ Sí, acceptar i vendre (${amount}M)`,
       confirmStyle: 'btn-primary',
       onConfirm: async () => {
         try {
-          const { error: rpcErr } = await supabase.rpc('accept_transfer_offer', { p_offer_id: offer.id })
-          if (rpcErr) {
+          let errorOccurred = false
+          try {
+            const { error: rpcErr } = await supabase.rpc('accept_transfer_offer', { p_offer_id: offer.id })
+            if (rpcErr) errorOccurred = true
+          } catch {
+            errorOccurred = true
+          }
+
+          if (errorOccurred) {
             // Fallback directe
             await supabase.from('fantasy_cards').update({
-              owner_manager_id: offer.bidder_manager_id,
+              owner_manager_id: isClubOffer ? null : offer.bidder_manager_id,
               status: 'owned',
               current_price: amount,
               market_listed_at: null,
               market_expires_at: null,
             }).eq('id', offer.fantasy_card_id)
 
-            await supabase.from('managers').update({ budget: (bidder?.budget || 0) - amount }).eq('id', offer.bidder_manager_id)
+            if (!isClubOffer && offer.bidder_manager_id) {
+              await supabase.from('managers').update({ budget: (bidder?.budget || 0) - amount }).eq('id', offer.bidder_manager_id)
+            }
             await supabase.from('managers').update({ budget: (manager.budget || 0) + Number(amount) }).eq('id', manager.id)
 
             await supabase.from('transfer_offers').update({ status: 'accepted', resolved_at: new Date().toISOString() }).eq('id', offer.id)
             await supabase.from('transfer_offers').update({ status: 'rejected', resolved_at: new Date().toISOString() }).eq('fantasy_card_id', offer.fantasy_card_id).neq('id', offer.id)
+
+            await supabase.from('activity_log').insert({
+              manager_id: isClubOffer ? null : offer.bidder_manager_id,
+              type: 'purchase',
+              message: `${buyerName} ha comprat a ${playerName} de ${manager.display_name} per ${amount}M`,
+            })
           }
 
           setToast({
@@ -392,8 +505,10 @@ export default function Market() {
   function openRejectReceivedOfferModal(offer) {
     const card = offer.fantasy_cards
     const player = card?.club_players
-    const bidder = offer.managers
-    const buyerName = bidder?.display_name || 'El comprador'
+    const isClubOffer = !offer.bidder_manager_id
+    const bidder = offer.managers || (isClubOffer ? { display_name: '🏛️ El Club', avatar_emoji: '🏛️' } : null)
+    const buyerName = isClubOffer ? '🏛️ El Club' : (bidder?.display_name || 'El comprador')
+    const buyerEmoji = isClubOffer ? '🏛️' : (bidder?.avatar_emoji || '👤')
     const playerName = player?.full_name || 'el jugador'
 
     setConfirmModal({
@@ -408,7 +523,7 @@ export default function Market() {
       amountLabel: "Oferta rebuda",
       partyLabel: "Comprador",
       partyName: buyerName,
-      partyEmoji: bidder?.avatar_emoji || '👤',
+      partyEmoji: buyerEmoji,
       description: `Segur que vols rebutjar l'oferta de ${offer.amount}M de ${buyerName}? El jugador seguirà a la teva plantilla o a la venda.`,
       confirmText: "✕ Sí, rebutjar oferta",
       confirmStyle: 'bg-danger hover:bg-danger/90 text-white border-none',
@@ -547,16 +662,40 @@ export default function Market() {
     })
   }
 
+  const isNoMarketMode = settings.market_mode === 'no_market'
+
   return (
     <div>
       <Topbar
-        title="Mercat de fitxatges"
-        subtitle="Compra, ven jugadors i gestiona les teves ofertes i contraofertes"
+        title={
+          <div className="flex items-center gap-2.5">
+            <span>{isNoMarketMode ? 'Mercat de fitxatges · Subhastes' : 'Mercat de fitxatges'}</span>
+            {(isNoMarketMode || settings.max_players_mode) && (
+              <button
+                type="button"
+                onClick={handleToggleInfo}
+                title={
+                  showAuctionInfo || showMaxPlayersInfo
+                    ? 'Amagar informació del mode'
+                    : 'Més informació sobre les normes i el mode de joc'
+                }
+                className="w-4 h-4 rounded-full bg-white/10 hover:bg-accent/20 text-white/70 hover:text-accent text-[11px] font-bold flex items-center justify-center transition-colors cursor-pointer border border-white/20"
+              >
+                i
+              </button>
+            )}
+          </div>
+        }
+        subtitle={
+          isNoMarketMode
+            ? "Subhastes oficials del club gestionades per l'administració"
+            : 'Compra, ven jugadors i gestiona les teves ofertes i contraofertes'
+        }
       />
 
       <DemoBanner className="mx-4 mt-4 sm:mx-8 sm:mt-6" />
 
-      {/* Navegació entre Pestanyes: Vendes vs Ofertes */}
+      {/* Navegació entre Pestanyes: Vendes/Subhastes vs Ofertes/Pujes */}
       <div className="px-4 pt-4 sm:px-8 sm:pt-6 flex gap-2 border-b border-base-border overflow-x-auto pb-1 -mb-px">
         <button
           onClick={() => setActiveTab('vendes')}
@@ -566,8 +705,13 @@ export default function Market() {
               : 'border-transparent text-ink-dim hover:text-ink'
           }`}
         >
-          <span>🏷️</span>
-          <span>Vendes</span>
+          <span>{isNoMarketMode ? '🏛️' : '🏷️'}</span>
+          <span>{isNoMarketMode ? 'Subhastes actives' : 'Vendes'}</span>
+          {listings.length > 0 && (
+            <span className="text-[11px] px-2 py-0.5 rounded-full bg-base-raised text-ink-dim font-medium">
+              {listings.length}
+            </span>
+          )}
         </button>
 
         <button
@@ -578,19 +722,78 @@ export default function Market() {
               : 'border-transparent text-ink-dim hover:text-ink'
           }`}
         >
-          <span>💼</span>
-          <span>Ofertes</span>
-          {receivedOffers.length > 0 && (
+          <span>{isNoMarketMode ? '💰' : '💼'}</span>
+          <span>{isNoMarketMode ? 'Les meves pujes' : 'Ofertes'}</span>
+          {receivedOffers.length > 0 && !isNoMarketMode && (
             <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-accent text-[#0B1220] ml-0.5 animate-pulse">
               {receivedOffers.length} rebudes
+            </span>
+          )}
+          {pendingSentOffers.length > 0 && (
+            <span className="text-[11px] px-2 py-0.5 rounded-full bg-base-raised text-ink-dim font-medium">
+              {pendingSentOffers.length}
             </span>
           )}
         </button>
       </div>
 
       <div className="p-4 sm:p-8 space-y-5 sm:space-y-6">
+        {/* Banner informatiu de modes de joc actius */}
+        {isNoMarketMode && showAuctionInfo && (
+          <div className="p-3.5 sm:p-4 rounded-xl bg-blue-500/10 border border-blue-500/25 flex items-start justify-between gap-3 text-xs sm:text-sm text-blue-200 animate-fade-in shadow-sm">
+            <div className="flex items-start gap-3 flex-1 min-w-0">
+              <span className="text-xl shrink-0 mt-0.5">🏛️</span>
+              <div className="space-y-0.5 min-w-0">
+                <p className="font-semibold text-white">Mode Subhastes actiu</p>
+                <p className="text-xs text-blue-200/90 leading-relaxed">
+                  Els jugadors que veus han estat posats a subhasta per l'administrador del club.
+                  {settings.anonymous_bids
+                    ? ' Les pujes són anònimes i secretes. Al finalitzar el temps, el jugador serà adjudicat automàticament al mànager amb la puja més alta.'
+                    : ' Les pujes són públiques i visibles per a tothom.'}
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={handleCloseAuctionInfo}
+              title="Tancar recordatori"
+              className="text-blue-300/60 hover:text-blue-200 hover:bg-blue-500/20 p-1 rounded-lg text-sm transition-colors shrink-0"
+            >
+              ✕
+            </button>
+          </div>
+        )}
+
+        {settings.max_players_mode && showMaxPlayersInfo && (
+          <div className="p-3.5 sm:p-4 rounded-xl bg-amber-500/10 border border-amber-500/30 flex items-start justify-between gap-3 text-xs sm:text-sm text-amber-200 animate-fade-in shadow-sm">
+            <div className="flex items-start gap-3 flex-1 min-w-0">
+              <span className="text-xl shrink-0 mt-0.5">🛡️</span>
+              <div className="space-y-0.5 min-w-0">
+                <p className="font-semibold text-amber-100">
+                  Mode "Màxim 5 jugadors" actiu ({mySquadCount}/5 a la plantilla{pendingSentOffers.length > 0 && ` · ${pendingSentOffers.length} ${pendingSentOffers.length === 1 ? 'oferta en curs' : 'ofertes en curs'}`})
+                </p>
+                <p className="text-xs text-amber-200/90 leading-relaxed">
+                  {mySquadCount >= 5
+                    ? 'Ja tens 5 jugadors a la teva plantilla. No pots fer noves ofertes ni fitxar més jugadors.'
+                    : (mySquadCount + pendingSentOffers.length >= 5)
+                    ? `Tens ${mySquadCount} jugadors a la plantilla i ${pendingSentOffers.length} ofertes en curs. No pots obrir més ofertes per altres jugadors simultàniament a menys que retiris alguna oferta prèvia.`
+                    : `Pots tenir un màxim de 5 jugadors. Amb ${mySquadCount} jugadors a la plantilla i ${pendingSentOffers.length} ofertes actives, pots fer fins a ${5 - mySquadCount - pendingSentOffers.length} noves ofertes.`}
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={handleCloseMaxPlayersInfo}
+              title="Tancar recordatori"
+              className="text-amber-300/60 hover:text-amber-200 hover:bg-amber-500/20 p-1 rounded-lg text-sm transition-colors shrink-0"
+            >
+              ✕
+            </button>
+          </div>
+        )}
+
         {/* ================================================================= */}
-        {/* PESTANYA 1: VENDES (Llistat general de jugadors al mercat)       */}
+        {/* PESTANYA 1: VENDES / SUBHASTES (Llistat general de jugadors)     */}
         {/* ================================================================= */}
         {activeTab === 'vendes' && (
           <div className="space-y-5 sm:space-y-6">
@@ -660,15 +863,19 @@ export default function Market() {
               )}
             </div>
 
-            {/* Llistat de jugadors al mercat */}
+            {/* Llistat de jugadors al mercat / subhasta */}
             {loading ? (
-              <p className="text-ink-dim text-sm py-8 text-center">Carregant jugadors al mercat…</p>
+              <p className="text-ink-dim text-sm py-8 text-center">Carregant jugadors…</p>
             ) : filteredListings.length === 0 ? (
               <div className="card p-8 sm:p-12 text-center text-ink-dim text-sm space-y-2">
-                <p className="text-base font-semibold text-ink">No s'ha trobat cap jugador al mercat</p>
+                <p className="text-base font-semibold text-ink">
+                  {isNoMarketMode ? 'No hi ha cap subhasta activa' : "No s'ha trobat cap jugador al mercat"}
+                </p>
                 <p className="text-xs text-ink-faint">
                   {searchTerm || posFilter !== 'ALL' || teamFilter !== 'ALL'
                     ? 'Prova de canviar els filtres de cerca.'
+                    : isNoMarketMode
+                    ? "L'administrador publicarà nous jugadors a subhasta pròximament."
                     : 'No hi ha cap fitxa a la venda actualment. Torna-ho a comprovar aviat!'}
                 </p>
               </div>
@@ -684,6 +891,13 @@ export default function Market() {
                   const isForbiddenTeam = forbiddenTeamIds.has(playerTeamId)
                   const isOwnPlayedTeam = manager?.player_team_id === playerTeamId
                   const totalPts = getPlayerTotalPoints(player)
+
+                  // Dades de subhastes i pujes
+                  const cardOffers = bidsByCardId.get(card.id) || []
+                  const highestBid = cardOffers.reduce((max, o) => Math.max(max, Number(o.amount) || 0), 0)
+                  const isMaxSquadLimitReached = Boolean(
+                    settings.max_players_mode && !myOffer && (mySquadCount + pendingSentOffers.length) >= 5
+                  )
 
                   return (
                     <div
@@ -730,10 +944,40 @@ export default function Market() {
                         {/* Preu i temps restant */}
                         <div className="flex items-end justify-between mt-3 pt-3 border-t border-base-border/70">
                           <div>
-                            <p className="text-[11px] text-ink-faint">Preu de sortida</p>
-                            <p className="font-display text-xl font-bold text-yellow-400" style={{ color: '#FACC15' }}>
-                              {card.current_price}M
-                            </p>
+                            {isNoMarketMode ? (
+                              settings.anonymous_bids ? (
+                                <>
+                                  <p className="text-[11px] text-ink-faint">Subhasta cega</p>
+                                  <p className="font-display text-base font-bold text-yellow-400" style={{ color: '#FACC15' }}>
+                                    Pujes anònimes
+                                  </p>
+                                  <p className="text-[10px] text-ink-dim mt-0.5 font-medium">
+                                    {cardOffers.length} {cardOffers.length === 1 ? 'puja registrada' : 'pujes registrades'}
+                                  </p>
+                                </>
+                              ) : (
+                                <>
+                                  <p className="text-[11px] text-ink-faint">
+                                    {highestBid > 0 ? 'Puja més alta' : 'Subhasta pública'}
+                                  </p>
+                                  <p className="font-display text-xl font-bold text-yellow-400" style={{ color: highestBid > 0 ? '#FACC15' : 'inherit' }}>
+                                    {highestBid > 0 ? `${highestBid}M` : 'Sense pujes'}
+                                  </p>
+                                  <p className="text-[10px] text-ink-dim mt-0.5 font-medium">
+                                    {cardOffers.length > 0
+                                      ? `${cardOffers.length} ${cardOffers.length === 1 ? 'persona ha pujat' : 'persones han pujat'}`
+                                      : 'Cap persona ha pujat'}
+                                  </p>
+                                </>
+                              )
+                            ) : (
+                              <>
+                                <p className="text-[11px] text-ink-faint">Preu de sortida</p>
+                                <p className="font-display text-xl font-bold text-yellow-400" style={{ color: '#FACC15' }}>
+                                  {card.current_price}M
+                                </p>
+                              </>
+                            )}
                           </div>
                           <div className="text-right">
                             <p className="text-[11px] text-ink-faint">Temps restant</p>
@@ -750,14 +994,16 @@ export default function Market() {
                               Propietari: <strong className="text-ink font-semibold">{card.managers.display_name}</strong>
                             </span>
                           ) : (
-                            <span className="text-ink-faint">Sense propietari (Club)</span>
+                            <span className="text-ink-faint">
+                              {isNoMarketMode ? '🏛️ Subhasta del Club' : 'Sense propietari (Club)'}
+                            </span>
                           )}
 
                           {myOffer && (
                             <span className="text-[11px] px-2 py-0.5 rounded bg-accent/20 text-yellow-400 font-semibold" style={{ color: '#FACC15' }}>
                               {myOffer.status === 'countered'
                                 ? `Contraoferta: ${myOffer.counter_amount}M`
-                                : `Oferta: ${myOffer.amount}M`}
+                                : `La teva puja: ${myOffer.amount}M`}
                             </span>
                           )}
                         </div>
@@ -777,12 +1023,20 @@ export default function Market() {
                             <span>🚫</span>
                             <span>{isOwnPlayedTeam ? 'És el teu equip' : 'Equip que entrenes'}</span>
                           </div>
+                        ) : isMaxSquadLimitReached ? (
+                          <div
+                            title={`Has assolit el límit de 5 jugadors (${mySquadCount} a la plantilla + ${pendingSentOffers.length} ofertes en curs).`}
+                            className="w-full py-2.5 px-3 rounded-xl bg-amber-500/10 text-center text-xs text-amber-300 border border-amber-500/30 font-semibold flex items-center justify-center gap-1.5 cursor-not-allowed select-none"
+                          >
+                            <span>🛡️</span>
+                            <span>Límit de 5 jugadors assolit ({mySquadCount + pendingSentOffers.length}/5)</span>
+                          </div>
                         ) : (
                           <button
                             type="button"
                             onClick={() => {
                               if (!manager) {
-                                setToast({ msg: "Has d'iniciar sessió per poder fer ofertes al mercat.", type: 'err' })
+                                setToast({ msg: "Has d'iniciar sessió per poder fer ofertes o pujar al mercat.", type: 'err' })
                                 return
                               }
                               setSelectedCardForOffer(card)
@@ -794,7 +1048,13 @@ export default function Market() {
                             }`}
                           >
                             <span>💰</span>
-                            <span>{myOffer ? `Modificar oferta (${myOffer.amount}M)` : 'Fer una oferta'}</span>
+                            <span>
+                              {myOffer
+                                ? `Modificar ${isNoMarketMode ? 'puja' : 'oferta'} (${myOffer.amount}M)`
+                                : isNoMarketMode
+                                ? 'Pujar per aquest jugador'
+                                : 'Fer una oferta'}
+                            </span>
                           </button>
                         )}
                       </div>
@@ -811,176 +1071,190 @@ export default function Market() {
         {/* ================================================================= */}
         {activeTab === 'ofertes' && (
           <div className="space-y-8">
-            {/* SECCIÓ A: OFERTES REBUDES */}
-            <div className="space-y-4">
-              <div className="flex items-center justify-between border-b border-base-border pb-3">
-                <div>
-                  <h3 className="font-display font-semibold text-lg text-ink flex items-center gap-2">
-                    <span>📥</span> Ofertes rebudes ({receivedOffers.length})
-                  </h3>
-                  <p className="text-xs text-ink-dim mt-0.5">
-                    Ofertes que altres usuaris han fet pels teus jugadors. Pots acceptar-les directament, rebutjar-les o fer una contraoferta.
-                  </p>
-                </div>
-              </div>
-
-              {loading ? (
-                <p className="text-ink-dim text-sm py-4">Carregant ofertes rebudes…</p>
-              ) : receivedOffers.length === 0 ? (
-                <div className="card p-6 text-center text-ink-dim text-sm space-y-1">
-                  <p className="font-semibold text-ink">No tens cap oferta rebuda pendent</p>
-                  <p className="text-xs text-ink-faint">
-                    Quan posis jugadors a la venda i un altre mànager faci una oferta per ells, apareixerà aquí.
-                  </p>
-                </div>
-              ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {receivedOffers.map((offer) => {
-                    const card = offer.fantasy_cards
-                    const player = card?.club_players
-                    const bidder = offer.managers
-                    const pos = player?.position?.toUpperCase()
-                    const posBadge = POS_BADGES[pos] || 'bg-base-raised text-ink border-base-border'
-                    const isCountered = offer.status === 'countered'
-                    const totalPts = getPlayerTotalPoints(player)
-
-                    return (
-                      <div
-                        key={offer.id}
-                        className="card p-4 sm:p-5 flex flex-col justify-between gap-4 border border-base-border bg-base-raised/60 hover:border-accent/40 transition-all shadow-sm"
-                      >
-                        <div className="space-y-3">
-                          {/* Capçalera jugador */}
-                          <div className="flex items-start justify-between gap-2 border-b border-base-border/70 pb-3">
-                            <div className="flex items-center gap-3 min-w-0 flex-1">
-                              <Jersey number={player?.dorsal} className="w-14 h-14 sm:w-16 sm:h-16 shrink-0" />
-                              <div className="min-w-0 flex-1">
-                                <p className="font-display font-bold text-ink text-lg sm:text-xl truncate leading-tight">
-                                  {player?.full_name}
-                                </p>
-                                <p className="text-xs text-ink-dim mt-0.5 truncate">
-                                  {player?.club_teams?.name || 'Club'} · Valor: <strong className="text-accent">{card?.current_price}M</strong>
-                                </p>
-                              </div>
-                            </div>
-                            <div className="flex items-center gap-1.5 shrink-0">
-                              <span
-                                title={`Punts acumulats: ${totalPts} pts (jornades normals)`}
-                                className="min-w-[26px] h-6 sm:min-w-[28px] sm:h-7 px-1.5 rounded-full text-xs font-display font-bold bg-yellow-400 text-black border border-yellow-300 shadow-sm flex items-center justify-center select-none"
-                              >
-                                {totalPts}
-                              </span>
-                              <span className={`text-[10px] sm:text-[11px] px-2.5 py-1 rounded-full border font-semibold flex items-center gap-1 ${posBadge}`}>
-                                <span>{player?.position}</span>
-                                <span className="select-none">{POS_EMOJIS[pos] || '⚽'}</span>
-                              </span>
-                            </div>
-                          </div>
-
-                          {/* Dades del postor i de l'oferta */}
-                          <div className="flex items-center justify-between p-3 rounded-xl bg-base-surface border border-base-border">
-                            <div className="flex items-center gap-2.5 min-w-0">
-                              <span className="text-2xl">{bidder?.avatar_emoji || '👤'}</span>
-                              <div className="min-w-0">
-                                <p className="text-xs text-ink-dim font-medium">Comprador interessat:</p>
-                                <p className="font-display font-semibold text-sm text-ink truncate">
-                                  {bidder?.display_name}
-                                </p>
-                              </div>
-                            </div>
-                            <div className="text-right shrink-0">
-                              <p className="text-[11px] text-ink-dim">Oferta rebuda</p>
-                              <p className="font-display text-lg sm:text-xl font-bold text-yellow-400" style={{ color: '#FACC15' }}>
-                                {offer.amount}M
-                              </p>
-                            </div>
-                          </div>
-
-                          {/* Estat de contraoferta si escau */}
-                          {isCountered ? (
-                            <div className="p-3 rounded-xl bg-amber-500/15 border border-amber-500/30 text-amber-200 text-xs flex items-center justify-between">
-                              <span className="flex items-center gap-1.5">
-                                <span>💬</span>
-                                <span>Contraoferta enviada: <strong>{offer.counter_amount}M</strong></span>
-                              </span>
-                              <span className="text-[11px] text-amber-200/80 italic">Esperant resposta</span>
-                            </div>
-                          ) : offer.last_rejected_counter ? (
-                            <div className="p-3 rounded-xl bg-amber-500/15 border border-amber-500/35 text-amber-200 text-xs space-y-1 animate-fade-in">
-                              <div className="flex items-center justify-between">
-                                <span className="font-semibold flex items-center gap-1.5 text-amber-100">
-                                  <span>↩️</span> Contraoferta de {offer.last_rejected_counter}M no acceptada
-                                </span>
-                              </div>
-                              <p className="text-[11px] text-amber-200/90 leading-relaxed">
-                                El comprador ha rebutjat la contraoferta anterior. La seva oferta inicial de <strong className="text-yellow-400">{offer.amount}M</strong> segueix vigent per si la vols acceptar o proposar una altra contraoferta.
-                              </p>
-                            </div>
-                          ) : null}
-
-                          <p className="text-[11px] text-ink-faint">
-                            Rebuda: {new Date(offer.created_at).toLocaleString('ca-ES', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
-                          </p>
-                        </div>
-
-                        {/* Botons d'acció */}
-                        <div className="grid grid-cols-3 gap-2 pt-2 border-t border-base-border/70">
-                          <button
-                            type="button"
-                            onClick={() => openAcceptReceivedOfferModal(offer)}
-                            className="btn-primary py-2.5 px-3 text-xs sm:text-sm font-semibold rounded-xl flex items-center justify-center gap-1.5"
-                          >
-                            <span>✓</span>
-                            <span>Acceptar ({offer.amount}M)</span>
-                          </button>
-
-                          <button
-                            type="button"
-                            onClick={() => setSelectedOfferForCounter(offer)}
-                            className="py-2.5 px-3 text-xs sm:text-sm font-semibold rounded-xl bg-amber-500/15 hover:bg-amber-500/25 text-amber-200 border border-amber-500/40 flex items-center justify-center gap-1.5 transition-colors"
-                          >
-                            <span>💬</span>
-                            <span>Contraoferta</span>
-                          </button>
-
-                          <button
-                            type="button"
-                            onClick={() => openRejectReceivedOfferModal(offer)}
-                            className="py-2.5 px-3 text-xs sm:text-sm font-semibold rounded-xl bg-danger/15 hover:bg-danger/25 text-danger border border-danger/40 flex items-center justify-center gap-1.5 transition-colors"
-                          >
-                            <span>✕</span>
-                            <span>Rebutjar</span>
-                          </button>
-                        </div>
-                      </div>
-                    )
-                  })}
-                </div>
-              )}
-            </div>
-
-            {/* SECCIÓ B: OFERTES ENVIADES */}
-            <div className="space-y-6 pt-4 border-t border-base-border">
-              {/* B1: Ofertes pendents / en curs */}
+            {/* SECCIÓ A: OFERTES REBUDES (Només en mode mercat actiu) */}
+            {!isNoMarketMode && (
               <div className="space-y-4">
                 <div className="flex items-center justify-between border-b border-base-border pb-3">
                   <div>
                     <h3 className="font-display font-semibold text-lg text-ink flex items-center gap-2">
-                      <span>📤</span> Ofertes enviades en curs ({pendingSentOffers.length})
+                      <span>📥</span> Ofertes rebudes ({receivedOffers.length})
                     </h3>
                     <p className="text-xs text-ink-dim mt-0.5">
-                      Seguiment de les teves ofertes actives per jugadors al mercat o d'altres mànagers.
+                      Ofertes que altres usuaris han fet pels teus jugadors. Pots acceptar-les directament, rebutjar-les o fer una contraoferta.
                     </p>
                   </div>
                 </div>
 
                 {loading ? (
-                  <p className="text-ink-dim text-sm py-4">Carregant ofertes enviades…</p>
+                  <p className="text-ink-dim text-sm py-4">Carregant ofertes rebudes…</p>
+                ) : receivedOffers.length === 0 ? (
+                  <div className="card p-6 text-center text-ink-dim text-sm space-y-1">
+                    <p className="font-semibold text-ink">No tens cap oferta rebuda pendent</p>
+                    <p className="text-xs text-ink-faint">
+                      Quan posis jugadors a la venda i un altre mànager faci una oferta per ells, apareixerà aquí.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {receivedOffers.map((offer) => {
+                      const card = offer.fantasy_cards
+                      const player = card?.club_players
+                      const isClubOffer = !offer.bidder_manager_id
+                      const bidder = offer.managers || (isClubOffer ? { display_name: '🏛️ El Club', avatar_emoji: '🏛️' } : null)
+                      const pos = player?.position?.toUpperCase()
+                      const posBadge = POS_BADGES[pos] || 'bg-base-raised text-ink border-base-border'
+                      const isCountered = offer.status === 'countered'
+                      const totalPts = getPlayerTotalPoints(player)
+
+                      return (
+                        <div
+                          key={offer.id}
+                          className="card p-4 sm:p-5 flex flex-col justify-between gap-4 border border-base-border bg-base-raised/60 hover:border-accent/40 transition-all shadow-sm"
+                        >
+                          <div className="space-y-3">
+                            {/* Capçalera jugador */}
+                            <div className="flex items-start justify-between gap-2 border-b border-base-border/70 pb-3">
+                              <div className="flex items-center gap-3 min-w-0 flex-1">
+                                <Jersey number={player?.dorsal} className="w-14 h-14 sm:w-16 sm:h-16 shrink-0" />
+                                <div className="min-w-0 flex-1">
+                                  <p className="font-display font-bold text-ink text-lg sm:text-xl truncate leading-tight">
+                                    {player?.full_name}
+                                  </p>
+                                  <p className="text-xs text-ink-dim mt-0.5 truncate">
+                                    {player?.club_teams?.name || 'Club'} · Valor: <strong className="text-accent">{card?.current_price}M</strong>
+                                  </p>
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-1.5 shrink-0">
+                                <span
+                                  title={`Punts acumulats: ${totalPts} pts (jornades normals)`}
+                                  className="min-w-[26px] h-6 sm:min-w-[28px] sm:h-7 px-1.5 rounded-full text-xs font-display font-bold bg-yellow-400 text-black border border-yellow-300 shadow-sm flex items-center justify-center select-none"
+                                >
+                                  {totalPts}
+                                </span>
+                                <span className={`text-[10px] sm:text-[11px] px-2.5 py-1 rounded-full border font-semibold flex items-center gap-1 ${posBadge}`}>
+                                  <span>{player?.position}</span>
+                                  <span className="select-none">{POS_EMOJIS[pos] || '⚽'}</span>
+                                </span>
+                              </div>
+                            </div>
+
+                            {/* Dades del postor i de l'oferta */}
+                            <div className="flex items-center justify-between p-3 rounded-xl bg-base-surface border border-base-border">
+                              <div className="flex items-center gap-2.5 min-w-0">
+                                <span className="text-2xl">{bidder?.avatar_emoji || '👤'}</span>
+                                <div className="min-w-0">
+                                  <p className="text-xs text-ink-dim font-medium">Comprador interessat:</p>
+                                  <p className="font-display font-semibold text-sm text-ink truncate">
+                                    {bidder?.display_name}
+                                  </p>
+                                </div>
+                              </div>
+                              <div className="text-right shrink-0">
+                                <p className="text-[11px] text-ink-dim">Oferta rebuda</p>
+                                <p className="font-display text-lg sm:text-xl font-bold text-yellow-400" style={{ color: '#FACC15' }}>
+                                  {offer.amount}M
+                                </p>
+                              </div>
+                            </div>
+
+                            {/* Estat de contraoferta si escau */}
+                            {isCountered ? (
+                              <div className="p-3 rounded-xl bg-amber-500/15 border border-amber-500/30 text-amber-200 text-xs flex items-center justify-between">
+                                <span className="flex items-center gap-1.5">
+                                  <span>💬</span>
+                                  <span>Contraoferta enviada: <strong>{offer.counter_amount}M</strong></span>
+                                </span>
+                                <span className="text-[11px] text-amber-200/80 italic">Esperant resposta</span>
+                              </div>
+                            ) : offer.last_rejected_counter ? (
+                              <div className="p-3 rounded-xl bg-amber-500/15 border border-amber-500/35 text-amber-200 text-xs space-y-1 animate-fade-in">
+                                <div className="flex items-center justify-between">
+                                  <span className="font-semibold flex items-center gap-1.5 text-amber-100">
+                                    <span>↩️</span> Contraoferta de {offer.last_rejected_counter}M no acceptada
+                                  </span>
+                                </div>
+                                <p className="text-[11px] text-amber-200/90 leading-relaxed">
+                                  El comprador ha rebutjat la contraoferta anterior. La seva oferta inicial de <strong className="text-yellow-400">{offer.amount}M</strong> segueix vigent per si la vols acceptar o proposar una altra contraoferta.
+                                </p>
+                              </div>
+                            ) : null}
+
+                            <p className="text-[11px] text-ink-faint">
+                              Rebuda: {new Date(offer.created_at).toLocaleString('ca-ES', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
+                            </p>
+                          </div>
+
+                          {/* Botons d'acció */}
+                          <div className="grid grid-cols-3 gap-2 pt-2 border-t border-base-border/70">
+                            <button
+                              type="button"
+                              onClick={() => openAcceptReceivedOfferModal(offer)}
+                              className="btn-primary py-2.5 px-3 text-xs sm:text-sm font-semibold rounded-xl flex items-center justify-center gap-1.5"
+                            >
+                              <span>✓</span>
+                              <span>Acceptar ({offer.amount}M)</span>
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => setSelectedOfferForCounter(offer)}
+                              className="py-2.5 px-3 text-xs sm:text-sm font-semibold rounded-xl bg-amber-500/15 hover:bg-amber-500/25 text-amber-200 border border-amber-500/40 flex items-center justify-center gap-1.5 transition-colors"
+                            >
+                              <span>💬</span>
+                              <span>Contraoferta</span>
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => openRejectReceivedOfferModal(offer)}
+                              className="py-2.5 px-3 text-xs sm:text-sm font-semibold rounded-xl bg-danger/15 hover:bg-danger/25 text-danger border border-danger/40 flex items-center justify-center gap-1.5 transition-colors"
+                            >
+                              <span>✕</span>
+                              <span>Rebutjar</span>
+                            </button>
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* SECCIÓ B: OFERTES / PUJES ENVIADES */}
+            <div className={`space-y-6 ${!isNoMarketMode ? 'pt-4 border-t border-base-border' : ''}`}>
+              {/* B1: Ofertes / Pujes pendents / en curs */}
+              <div className="space-y-4">
+                <div className="flex items-center justify-between border-b border-base-border pb-3">
+                  <div>
+                    <h3 className="font-display font-semibold text-lg text-ink flex items-center gap-2">
+                      <span>{isNoMarketMode ? '🏛️' : '📤'}</span>
+                      <span>
+                        {isNoMarketMode ? 'Pujes enviades en curs' : 'Ofertes enviades en curs'} ({pendingSentOffers.length})
+                      </span>
+                    </h3>
+                    <p className="text-xs text-ink-dim mt-0.5">
+                      {isNoMarketMode
+                        ? 'Seguiment de les teves pujes actives a les subhastes del club.'
+                        : 'Seguiment de les teves ofertes actives per jugadors al mercat o d\'altres mànagers.'}
+                    </p>
+                  </div>
+                </div>
+
+                {loading ? (
+                  <p className="text-ink-dim text-sm py-4">
+                    {isNoMarketMode ? 'Carregant pujes enviades…' : 'Carregant ofertes enviades…'}
+                  </p>
                 ) : pendingSentOffers.length === 0 ? (
                   <div className="card p-6 text-center text-ink-dim text-sm space-y-1">
-                    <p className="font-semibold text-ink">No tens cap oferta pendent en curs</p>
+                    <p className="font-semibold text-ink">
+                      {isNoMarketMode ? 'No tens cap puja pendent en curs' : 'No tens cap oferta pendent en curs'}
+                    </p>
                     <p className="text-xs text-ink-faint">
-                      Explora la pestanya de Vendes per trobar nous jugadors i fer ofertes.
+                      {isNoMarketMode
+                        ? 'Explora la pestanya de Subhastes actives per trobar jugadors i fer la teva puja.'
+                        : 'Explora la pestanya de Vendes per trobar nous jugadors i fer ofertes.'}
                     </p>
                   </div>
                 ) : (
@@ -1013,7 +1287,10 @@ export default function Market() {
                                     {player?.full_name || 'Jugador'}
                                   </p>
                                   <p className="text-xs text-ink-dim mt-0.5 truncate">
-                                    {player?.club_teams?.name || 'Club'} · Propietari: <strong className="text-ink">{seller?.display_name || 'Club (Lliure)'}</strong>
+                                    {player?.club_teams?.name || 'Club'}
+                                    {!isNoMarketMode && (
+                                      <> · Propietari: <strong className="text-ink">{seller?.display_name || 'Club (Lliure)'}</strong></>
+                                    )}
                                   </p>
                                 </div>
                               </div>
@@ -1031,20 +1308,24 @@ export default function Market() {
                               </div>
                             </div>
 
-                            {/* Oferta realitzada */}
+                            {/* Oferta / Puja realitzada */}
                             <div className="flex items-center justify-between p-3 rounded-xl bg-base-surface border border-base-border">
                               <div>
-                                <p className="text-[11px] text-ink-dim">La teva oferta enviada</p>
+                                <p className="text-[11px] text-ink-dim">
+                                  {isNoMarketMode ? 'La teva puja enviada' : 'La teva oferta enviada'}
+                                </p>
                                 <p className="font-display text-lg font-bold text-yellow-400" style={{ color: '#FACC15' }}>
                                   {offer.amount}M
                                 </p>
                               </div>
-                              <div className="text-right">
-                                <p className="text-[11px] text-ink-dim">Preu de sortida</p>
-                                <p className="text-sm font-semibold text-ink">
-                                  {card?.current_price}M
-                                </p>
-                              </div>
+                              {!isNoMarketMode && (
+                                <div className="text-right">
+                                  <p className="text-[11px] text-ink-dim">Preu de sortida</p>
+                                  <p className="text-sm font-semibold text-ink">
+                                    {card?.current_price}M
+                                  </p>
+                                </div>
+                              )}
                             </div>
 
                             {/* Notificació de contraoferta */}
@@ -1107,7 +1388,7 @@ export default function Market() {
                                   className="btn-ghost flex-1 py-2.5 px-3 text-xs sm:text-sm font-semibold border border-base-border hover:border-accent/50 text-ink min-h-[40px] flex items-center justify-center gap-1.5"
                                 >
                                   <span>✏️</span>
-                                  <span>Modificar oferta</span>
+                                  <span>{isNoMarketMode ? 'Modificar puja' : 'Modificar oferta'}</span>
                                 </button>
                               </>
                             )}
@@ -1257,9 +1538,12 @@ export default function Market() {
         <DirectOfferModal
           card={selectedCardForOffer}
           existingOffer={getMyOfferForCard(selectedCardForOffer.id)}
+          cardBids={bidsByCardId.get(selectedCardForOffer.id) || []}
           userOffers={sentOffers}
           manager={manager}
           forbiddenTeamIds={forbiddenTeamIds}
+          settings={settings}
+          mySquadCount={mySquadCount}
           onClose={() => setSelectedCardForOffer(null)}
           onOfferSuccess={(msg) => {
             setSelectedCardForOffer(null)
@@ -1414,7 +1698,9 @@ function ConfirmActionModal({ data, onClose }) {
 function CounterOfferModal({ offer, manager, onClose, onSuccess }) {
   const card = offer.fantasy_cards
   const player = card?.club_players
-  const bidder = offer.managers
+  const isClubOffer = !offer.bidder_manager_id
+  const bidder = offer.managers || (isClubOffer ? { display_name: '🏛️ El Club', avatar_emoji: '🏛️' } : null)
+  const bidderName = isClubOffer ? '🏛️ El Club' : (bidder?.display_name || 'el comprador')
 
   const [counterPrice, setCounterPrice] = useState(
     offer.counter_amount || (Number(offer.amount) + 1).toString()
@@ -1454,7 +1740,7 @@ function CounterOfferModal({ offer, manager, onClose, onSuccess }) {
         if (updErr) throw new Error(rpcErr.message || updErr.message)
       }
 
-      onSuccess(`Contraoferta de ${numAmount}M enviada correctament a ${bidder?.display_name}!`)
+      onSuccess(`Contraoferta de ${numAmount}M enviada correctament a ${bidderName}!`)
     } catch (err) {
       setError(err.message || 'Error enviant la contraoferta')
       setSubmitting(false)
@@ -1475,7 +1761,7 @@ function CounterOfferModal({ offer, manager, onClose, onSuccess }) {
               <span>💬</span> Fer una contraoferta
             </h3>
             <p className="text-xs text-ink-dim mt-0.5">
-              Proposa un nou import a <strong>{bidder?.display_name}</strong>
+              Proposa un nou import a <strong>{bidderName}</strong>
             </p>
           </div>
           <button
@@ -1562,10 +1848,64 @@ function CounterOfferModal({ offer, manager, onClose, onSuccess }) {
   )
 }
 
-function DirectOfferModal({ card, existingOffer, userOffers = [], manager, forbiddenTeamIds, onClose, onOfferSuccess }) {
-  const player = card.club_players
-  const minPrice = card.current_price || 1
-  const defaultAmount = existingOffer ? existingOffer.amount : minPrice
+function DirectOfferModal({
+  card,
+  existingOffer,
+  cardBids = [],
+  userOffers = [],
+  manager,
+  forbiddenTeamIds,
+  settings,
+  mySquadCount = 0,
+  onClose,
+  onOfferSuccess,
+}) {
+  const player = Array.isArray(card?.club_players) ? card.club_players[0] : card?.club_players
+  const isNoMarket = settings?.market_mode === 'no_market'
+  const isVisibleAuction = isNoMarket && !settings?.anonymous_bids
+
+  // Pujes ordenades de major a menor import
+  const sortedCardBids = useMemo(() => {
+    return [...cardBids].sort((a, b) => (Number(b.amount) || 0) - (Number(a.amount) || 0))
+  }, [cardBids])
+
+  const highestBid = sortedCardBids.length > 0 ? Number(sortedCardBids[0].amount) || 0 : 0
+  const isCurrentlyHighestBidder = Boolean(
+    existingOffer && highestBid > 0 && Number(existingOffer.amount) === highestBid
+  )
+
+  // En subhasta visible cal pujar mínim +1M sobre la puja més alta actual (excepte si ja ets el capdavanter i modifiques)
+  const minPrice = useMemo(() => {
+    if (isVisibleAuction) {
+      if (highestBid > 0) {
+        if (isCurrentlyHighestBidder) {
+          return highestBid
+        }
+        return highestBid + 1
+      }
+      return 0.5
+    }
+    if (isNoMarket) {
+      return 0.5
+    }
+    return Number(card?.current_price) || 1
+  }, [isVisibleAuction, highestBid, isCurrentlyHighestBidder, isNoMarket, card?.current_price])
+
+  const defaultAmount = existingOffer
+    ? Number(existingOffer.amount)
+    : (isVisibleAuction ? (highestBid > 0 ? highestBid + 1 : 1) : (isNoMarket ? 1 : minPrice))
+
+  // Ofertes actives en altres jugadors del mercat (excloent aquest mateix si ja tenia oferta)
+  const otherActiveOffers = useMemo(() => {
+    return (userOffers || []).filter(
+      (o) => o.fantasy_card_id !== card?.id && (o.status === 'pending' || o.status === 'countered')
+    )
+  }, [userOffers, card?.id])
+
+  const otherOffersCount = otherActiveOffers.length
+  const isMaxSquadLimit = Boolean(
+    settings?.max_players_mode && !existingOffer && (mySquadCount + otherOffersCount) >= 5
+  )
 
   const [amount, setAmount] = useState(defaultAmount)
   const [submitting, setSubmitting] = useState(false)
@@ -1577,10 +1917,8 @@ function DirectOfferModal({ card, existingOffer, userOffers = [], manager, forbi
 
   // Total de les ofertes pendents en altres jugadors (excloent aquest mateix si ja tenia oferta prèvia)
   const otherOffersTotal = useMemo(() => {
-    return (userOffers || [])
-      .filter((o) => o.fantasy_card_id !== card.id)
-      .reduce((sum, o) => sum + (Number(o.amount) || 0), 0)
-  }, [userOffers, card.id])
+    return otherActiveOffers.reduce((sum, o) => sum + (Number(o.amount) || 0), 0)
+  }, [otherActiveOffers])
 
   // Pressupost màxim que l'usuari pot destinar a aquesta oferta
   const maxAvailableBudget = Math.max(0, (manager?.budget || 0) - otherOffersTotal)
@@ -1597,7 +1935,9 @@ function DirectOfferModal({ card, existingOffer, userOffers = [], manager, forbi
           <div className="w-12 h-12 rounded-full bg-accent/20 text-accent flex items-center justify-center text-xl mx-auto">
             🔒
           </div>
-          <h3 className="font-display font-semibold text-lg text-ink">Inicia sessió per fer una oferta</h3>
+          <h3 className="font-display font-semibold text-lg text-ink">
+            {isNoMarket ? 'Inicia sessió per fer una puja' : 'Inicia sessió per fer una oferta'}
+          </h3>
           <p className="text-xs sm:text-sm text-ink-dim">
             Has d'estar registrat amb el teu usuari per poder participar en el mercat de fitxatges.
           </p>
@@ -1608,6 +1948,34 @@ function DirectOfferModal({ card, existingOffer, userOffers = [], manager, forbi
             <Link to="/login" className="btn-primary flex-1 text-sm py-2.5 text-center flex items-center justify-center">
               Iniciar sessió
             </Link>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  if (isMaxSquadLimit) {
+    return (
+      <div
+        onClick={(e) => {
+          if (e.target === e.currentTarget) onClose()
+        }}
+        className="fixed inset-0 bg-black/75 flex items-center justify-center z-50 p-4 animate-fade-in"
+      >
+        <div className="card w-full max-w-md p-6 space-y-4 shadow-2xl border border-base-border text-center">
+          <div className="w-12 h-12 rounded-full bg-amber-500/20 text-amber-300 flex items-center justify-center text-xl mx-auto">
+            🛡️
+          </div>
+          <h3 className="font-display font-semibold text-lg text-ink">
+            Límit de 5 jugadors assolit ({mySquadCount + otherOffersCount}/5)
+          </h3>
+          <p className="text-xs sm:text-sm text-ink-dim leading-relaxed">
+            El mode <strong>"Màxim 5 jugadors"</strong> està activat a la lliga. Tens <strong>{mySquadCount}</strong> jugadors a la teva plantilla i <strong>{otherOffersCount}</strong> {otherOffersCount === 1 ? 'oferta en curs' : 'ofertes en curs'} en altres jugadors. No pots fer més ofertes simultànies a menys que retiris alguna oferta prèvia.
+          </p>
+          <div className="pt-2">
+            <button type="button" onClick={onClose} className="btn-primary w-full text-sm py-2.5">
+              D'acord
+            </button>
           </div>
         </div>
       </div>
@@ -1658,7 +2026,11 @@ function DirectOfferModal({ card, existingOffer, userOffers = [], manager, forbi
     }
 
     if (numAmount < minPrice) {
-      setError(`L'oferta mínima per aquest jugador és de ${minPrice}M`)
+      if (isVisibleAuction && highestBid > 0) {
+        setError(`En subhasta visible és obligatori superar la puja més alta (${highestBid}M) per un mínim de +1M (Mínim: ${minPrice}M).`)
+      } else {
+        setError(`L'oferta mínima per aquest jugador és de ${minPrice}M`)
+      }
       return
     }
 
@@ -1702,13 +2074,13 @@ function DirectOfferModal({ card, existingOffer, userOffers = [], manager, forbi
       await supabase.from('activity_log').insert({
         manager_id: manager.id,
         type: 'offer_made',
-        message: `${manager.display_name} ha enviat una oferta de ${numAmount}M per ${player?.full_name}`,
+        message: `${manager.display_name} ha ${existingOffer ? 'actualitzat la seva puja a' : 'fet una puja de'} ${numAmount}M per ${player?.full_name}`,
       })
 
       onOfferSuccess(
         existingOffer
-          ? `Oferta actualitzada a ${numAmount}M per ${player?.full_name}!`
-          : `Oferta de ${numAmount}M enviada correctament per ${player?.full_name}!`
+          ? `Puja actualitzada a ${numAmount}M per ${player?.full_name}!`
+          : `Puja de ${numAmount}M enviada correctament per ${player?.full_name}!`
       )
     } catch (err) {
       setError(err.message || "Error enviant l'oferta")
@@ -1752,8 +2124,16 @@ function DirectOfferModal({ card, existingOffer, userOffers = [], manager, forbi
         <div className="flex items-center justify-between border-b border-base-border pb-3">
           <div className="min-w-0">
             <h3 className="font-display font-semibold text-lg text-ink flex items-center gap-2">
-              <span>💰</span>
-              <span>{existingOffer ? "Modificar l'oferta" : 'Fer una oferta'}</span>
+              <span>{isNoMarket ? '🏛️' : '💰'}</span>
+              <span>
+                {existingOffer
+                  ? isNoMarket
+                    ? 'Modificar la teva puja'
+                    : "Modificar l'oferta"
+                  : isNoMarket
+                  ? 'Fer una puja a la subhasta'
+                  : 'Fer una oferta'}
+              </span>
             </h3>
             <p className="text-xs text-ink-dim mt-0.5">
               Sessió activa com a <strong>{manager.display_name}</strong>
@@ -1792,12 +2172,14 @@ function DirectOfferModal({ card, existingOffer, userOffers = [], manager, forbi
               </div>
             </div>
           </div>
-          <div className="text-right shrink-0">
-            <p className="text-[11px] text-ink-dim">Preu de sortida</p>
-            <p className="font-display font-bold text-yellow-400 text-base sm:text-lg" style={{ color: '#FACC15' }}>
-              {card.current_price}M
-            </p>
-          </div>
+          {!isNoMarket && (
+            <div className="text-right shrink-0">
+              <p className="text-[11px] text-ink-faint">Preu de sortida</p>
+              <p className="font-display font-bold text-yellow-400 text-base sm:text-lg" style={{ color: '#FACC15' }}>
+                {card.current_price}M
+              </p>
+            </div>
+          )}
         </div>
 
         {/* Balanç i Oferta existent */}
@@ -1817,11 +2199,117 @@ function DirectOfferModal({ card, existingOffer, userOffers = [], manager, forbi
           </div>
         </div>
 
+        {/* Informació de funcionament de la subhasta o Registre de pujes públiques */}
+        {isNoMarket && (
+          <div className="space-y-3">
+            {isVisibleAuction ? (
+              <div className="p-3.5 rounded-xl bg-base-surface border border-base-border space-y-2.5">
+                <div className="flex items-center justify-between border-b border-base-border/70 pb-2">
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-sm">🏛️</span>
+                    <span className="font-display font-semibold text-xs text-ink uppercase tracking-wider">
+                      Registre de pujes públiques
+                    </span>
+                  </div>
+                  <span className="text-[11px] font-semibold text-ink-dim">
+                    {sortedCardBids.length} {sortedCardBids.length === 1 ? 'persona ha pujat' : 'persones han pujat'}
+                  </span>
+                </div>
+
+                {sortedCardBids.length === 0 ? (
+                  <p className="text-xs text-ink-faint italic py-2 text-center">
+                    Encara no hi ha cap puja registrada per aquest jugador. Sigues el primer a licitar!
+                  </p>
+                ) : (
+                  <div className="space-y-1.5 max-h-36 overflow-y-auto pr-1">
+                    {sortedCardBids.map((bid, idx) => {
+                      const isMe = bid.bidder_manager_id === manager?.id
+                      const isTop = idx === 0
+                      const bidderName = bid.managers?.display_name || (isMe ? manager?.display_name : 'Mànager')
+                      const bidderEmoji = bid.managers?.avatar_emoji || (isMe ? manager?.avatar_emoji : '👤')
+
+                      return (
+                        <div
+                          key={bid.id || idx}
+                          className={`flex items-center justify-between p-2 rounded-lg text-xs transition-colors ${
+                            isTop
+                              ? 'bg-yellow-500/10 border border-yellow-500/30'
+                              : isMe
+                              ? 'bg-accent/10 border border-accent/20'
+                              : 'bg-base-raised/60 border border-base-border/50'
+                          }`}
+                        >
+                          <div className="flex items-center gap-2 min-w-0">
+                            <span className="text-base shrink-0">{bidderEmoji}</span>
+                            <div className="min-w-0">
+                              <p className="font-semibold text-ink truncate flex items-center gap-1.5">
+                                <span>{bidderName}</span>
+                                {isMe && (
+                                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-accent/20 text-yellow-400 font-semibold" style={{ color: '#FACC15' }}>
+                                    La teva puja
+                                  </span>
+                                )}
+                                {isTop && (
+                                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-yellow-400 text-black font-bold">
+                                    👑 Puja més alta
+                                  </span>
+                                )}
+                              </p>
+                              {bid.created_at && (
+                                <p className="text-[10px] text-ink-faint">
+                                  {formatRelativeTime(bid.created_at)}
+                                </p>
+                              )}
+                            </div>
+                          </div>
+
+                          <div className="text-right shrink-0">
+                            <p className="font-display font-bold text-sm text-yellow-400" style={{ color: '#FACC15' }}>
+                              {bid.amount}M
+                            </p>
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+
+                {/* Resum de norma de puja mínima */}
+                <div className="pt-2 border-t border-base-border/70 flex items-center justify-between text-[11px] flex-wrap gap-1">
+                  <span className="text-ink-dim">
+                    {highestBid > 0 ? (
+                      <>
+                        Última puja: <strong className="text-yellow-400 font-bold" style={{ color: '#FACC15' }}>{highestBid}M</strong>
+                      </>
+                    ) : (
+                      <>
+                        Estat: <strong className="text-ink font-semibold">Sense pujes prèvies</strong>
+                      </>
+                    )}
+                  </span>
+                  <span className="text-ink-dim">
+                    Puja mínima necessària: <strong className="text-yellow-400 font-bold" style={{ color: '#FACC15' }}>{minPrice}M</strong> {highestBid > 0 && !isCurrentlyHighestBidder && '(+1M)'}
+                  </span>
+                </div>
+              </div>
+            ) : (
+              <div className="p-3 rounded-xl bg-blue-500/10 border border-blue-500/20 text-xs text-blue-200 leading-relaxed space-y-1">
+                <p className="font-semibold text-white flex items-center gap-1.5">
+                  <span>ℹ️</span> Subhasta amb pujes anònimes
+                </p>
+                <p className="text-blue-200/90 text-[11px]">
+                  Les pujes són secretes. Quan acabi el compte enrere, el jugador serà adjudicat automàticament al mànager que hagi fet la puja més alta.
+                </p>
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Si s'està confirmant l'eliminació */}
         {showDeleteConfirm ? (
           <div className="p-4 rounded-xl bg-danger/10 border border-danger/30 space-y-3 animate-fade-in">
             <p className="text-xs font-semibold text-danger">
-              Segur que vols eliminar la teva oferta de {existingOffer.amount}M per {player?.full_name}?
+              Segur que vols eliminar la teva {isNoMarket ? 'puja' : 'oferta'} de {existingOffer.amount}M per {player?.full_name}?
             </p>
             <div className="flex gap-2">
               <button
@@ -1847,7 +2335,7 @@ function DirectOfferModal({ card, existingOffer, userOffers = [], manager, forbi
           <form onSubmit={handleSubmit} className="space-y-4 pt-1">
             <div>
               <label className="text-xs font-semibold text-ink block mb-1.5">
-                Import de l'oferta (milions) *
+                {isNoMarket ? "Import de la puja (milions) *" : "Import de l'oferta (milions) *"}
               </label>
               <div className="relative">
                 <input
@@ -1874,7 +2362,11 @@ function DirectOfferModal({ card, existingOffer, userOffers = [], manager, forbi
                 </span>
               </div>
               <p className="text-[11px] mt-1.5 flex items-center justify-between">
-                <span className="text-ink-dim">Mínim: {minPrice}M</span>
+                <span className="text-ink-dim">
+                  {isNoMarket
+                    ? `Puja mínima: ${minPrice}M${isVisibleAuction && highestBid > 0 && !isCurrentlyHighestBidder ? ' (+1M sobre la puja líder)' : ''}`
+                    : `Mínim: ${minPrice}M`}
+                </span>
                 {isBudgetExceeded ? (
                   <span className="text-ink-dim">
                     Superes el teu límit per <strong className="text-danger font-semibold">{(numAmount - maxAvailableBudget).toFixed(1)}M</strong>
@@ -1892,16 +2384,18 @@ function DirectOfferModal({ card, existingOffer, userOffers = [], manager, forbi
               <div className="p-3 rounded-xl bg-danger/15 border border-danger/40 text-danger text-xs font-medium flex items-start gap-2.5 animate-fade-in shadow-sm">
                 <span className="text-lg shrink-0 leading-none mt-0.5">⚠️</span>
                 <div className="space-y-0.5">
-                  <p className="font-bold text-xs sm:text-sm">Oferta no permesa: has superat el pressupost disponible</p>
+                  <p className="font-bold text-xs sm:text-sm">
+                    {isNoMarket ? 'Puja no permesa: has superat el pressupost disponible' : 'Oferta no permesa: has superat el pressupost disponible'}
+                  </p>
                   <p className="text-[11px] text-danger/90 leading-relaxed">
-                    L'import que has introduït (<strong>{numAmount}M</strong>) és superior al teu pressupost lliure disponible (<strong>{maxAvailableBudget.toFixed(1)}M</strong>). Redueix l'import per poder confirmar l'oferta.
+                    L'import que has introduït (<strong>{numAmount}M</strong>) és superior al teu pressupost lliure disponible (<strong>{maxAvailableBudget.toFixed(1)}M</strong>). Redueix l'import per poder confirmar la {isNoMarket ? 'puja' : 'oferta'}.
                   </p>
                 </div>
               </div>
             )}
 
             {/* Botons d'increment ràpid */}
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               <button
                 type="button"
                 onClick={() => setAmount(minPrice)}
@@ -1911,23 +2405,24 @@ function DirectOfferModal({ card, existingOffer, userOffers = [], manager, forbi
               </button>
               <button
                 type="button"
-                onClick={() => setAmount((prev) => Math.min(maxAvailableBudget || 500, Number(prev || minPrice) + 0.5))}
-                className="btn-ghost py-1 px-2.5 text-xs rounded-lg text-ink-dim hover:text-ink"
-              >
-                +0.5M
-              </button>
-              <button
-                type="button"
-                onClick={() => setAmount((prev) => Math.min(maxAvailableBudget || 500, Number(prev || minPrice) + 1))}
+                onClick={() => setAmount((prev) => Math.min(maxAvailableBudget || 500, Math.max(minPrice, Number(prev || minPrice) + 1)))}
                 className="btn-ghost py-1 px-2.5 text-xs rounded-lg text-ink-dim hover:text-ink"
               >
                 +1.0M
+              </button>
+              <button
+                type="button"
+                onClick={() => setAmount((prev) => Math.min(maxAvailableBudget || 500, Math.max(minPrice, Number(prev || minPrice) + 2)))}
+                className="btn-ghost py-1 px-2.5 text-xs rounded-lg text-ink-dim hover:text-ink"
+              >
+                +2.0M
               </button>
               {maxAvailableBudget >= minPrice && (
                 <button
                   type="button"
                   onClick={() => setAmount(maxAvailableBudget)}
-                  className="btn-ghost py-1 px-2.5 text-xs rounded-lg text-accent hover:text-accent font-semibold ml-auto"
+                  className="btn-ghost py-1 px-2.5 text-xs rounded-lg text-yellow-400 font-semibold ml-auto"
+                  style={{ color: '#FACC15' }}
                 >
                   Tot ({maxAvailableBudget.toFixed(1)}M)
                 </button>
@@ -1949,7 +2444,7 @@ function DirectOfferModal({ card, existingOffer, userOffers = [], manager, forbi
                   className="py-2.5 px-3.5 rounded-[10px] bg-danger/15 hover:bg-danger/25 border border-danger/40 text-danger text-xs sm:text-sm font-semibold min-h-[42px] flex items-center gap-1.5 transition-colors"
                 >
                   <span>🗑️</span>
-                  <span>Eliminar oferta</span>
+                  <span>Eliminar {isNoMarket ? 'puja' : 'oferta'}</span>
                 </button>
               ) : <div />}
 
@@ -1978,6 +2473,8 @@ function DirectOfferModal({ card, existingOffer, userOffers = [], manager, forbi
                     ? '🚫 Pressupost superat'
                     : existingOffer
                     ? `Actualitzar a ${numAmount || 0}M`
+                    : isNoMarket
+                    ? `Confirmar puja (${numAmount || 0}M)`
                     : `Confirmar oferta (${numAmount || 0}M)`}
                 </button>
               </div>

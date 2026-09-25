@@ -441,7 +441,7 @@ export default function CoachForm() {
           await supabase.from('activity_log').insert({
             manager_id: manager.id,
             type: 'points_added',
-            message: `${manager.display_name} ha eliminat el registre de puntuacions de ${teamName} (${mdLabel})`,
+            message: `S'ha eliminat el registre de puntuacions de ${teamName} (${mdLabel})`,
           })
         } catch {}
       }

@@ -10,6 +10,7 @@ import Toast from '../components/Toast'
 import DemoBanner from '../components/DemoBanner'
 import { getActiveMatchdayNow, formatDateDMY } from '../lib/matchdayUtils'
 import { MOCK_MANAGERS, getMockSquadData } from '../lib/mockData'
+import { fetchGameSettings, DEFAULT_GAME_SETTINGS } from '../lib/settingsUtils'
 
 const POS_ORDER = { PORTER: 1, TANCA: 2, ALA: 3, PIVOT: 4 }
 
@@ -61,6 +62,7 @@ export default function Squad() {
   const [lineup, setLineup] = useState({})            // slot -> fantasy_card_id
   const [lineupCards, setLineupCards] = useState({})  // slot -> dades completes de la fitxa (inclou venuts al 5 titular)
   const [matchdays, setMatchdays] = useState([])      // llistat de jornades
+  const [gameSettings, setGameSettings] = useState(DEFAULT_GAME_SETTINGS)
   const [loading, setLoading] = useState(true)
   const [activeSlotModal, setActiveSlotModal] = useState(null)
   const [selectedManageCard, setSelectedManageCard] = useState(null)
@@ -114,6 +116,7 @@ export default function Squad() {
         const { cardsData, lineupData, matchdaysData } = getMockSquadData(selectedManagerId)
         setMatchdays(matchdaysData || [])
         setCards(cardsData || [])
+        setGameSettings(DEFAULT_GAME_SETTINGS)
         const lu = {}
         const luCards = {}
         ;(lineupData || []).forEach((l) => {
@@ -126,7 +129,9 @@ export default function Squad() {
         setLineupCards(luCards)
         return
       }
-      const [{ data: cardsData }, { data: lineupData }, { data: matchdaysData }] = await Promise.all([
+
+      const [settingsRes, { data: cardsData }, { data: lineupData }, { data: matchdaysData }] = await Promise.all([
+        fetchGameSettings(),
         supabase
           .from('fantasy_cards')
           .select(`
@@ -180,6 +185,10 @@ export default function Squad() {
               .eq('slot', s.slot)
           }
         }
+      }
+
+      if (settingsRes) {
+        setGameSettings(settingsRes)
       }
 
       setCards(cardsData || [])
@@ -512,11 +521,27 @@ export default function Squad() {
             </div>
 
             <div className="card p-4 sm:p-6 flex flex-col space-y-4">
-              <div className="flex items-center justify-between border-b border-base-border/70 pb-3">
+              <div className="flex items-center justify-between border-b border-base-border/70 pb-3 flex-wrap gap-2">
                 <h2 className="font-display font-semibold text-lg sm:text-xl text-ink flex items-center gap-2">
-                  <span>⚽</span> Planter ({sortedPlanter.length})
+                  <span>⚽</span> Planter ({sortedPlanter.length}{gameSettings.max_players_mode ? '/5' : ''})
                 </h2>
+                {gameSettings.max_players_mode && (
+                  <span className={`text-[11px] px-2.5 py-1 rounded-full font-semibold border ${
+                    sortedPlanter.length >= 5
+                      ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+                      : 'bg-blue-500/20 text-blue-300 border-blue-500/40'
+                  }`}>
+                    🛡️ Mode Màxim 5 jugadors ({sortedPlanter.length}/5)
+                  </span>
+                )}
               </div>
+
+              {gameSettings.max_players_mode && sortedPlanter.length >= 5 && (
+                <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-200 text-xs flex items-center gap-2">
+                  <span>ℹ️</span>
+                  <span>Has assolit el límit màxim de 5 jugadors a la plantilla permès en aquest mode de joc.</span>
+                </div>
+              )}
 
               {loading ? (
                 <p className="text-ink-dim text-sm py-8">Carregant jugadors del planter…</p>
@@ -617,6 +642,7 @@ export default function Squad() {
           lineup={lineup}
           isLineupLocked={isLineupLocked}
           activeMatchday={activeMatchday}
+          gameSettings={gameSettings}
           onClose={() => setSelectedManageCard(null)}
           onSelectSlot={handleSelectSlotPlayer}
           onRemoveSlot={handleRemoveSlotPlayer}
@@ -655,6 +681,7 @@ function ManagePlayerModal({
   lineup,
   isLineupLocked,
   activeMatchday,
+  gameSettings,
   onClose,
   onSelectSlot,
   onRemoveSlot,
@@ -672,6 +699,7 @@ function ManagePlayerModal({
   const isTitularSlotKey = Object.keys(lineup).find((k) => lineup[k] === card.id)
   const isTitular = Boolean(isTitularSlotKey)
   const isOnMarket = card.status === 'market'
+  const isNoMarketMode = gameSettings?.market_mode === 'no_market'
 
   async function handleListForSale(e) {
     e.preventDefault()
@@ -842,6 +870,15 @@ function ManagePlayerModal({
               >
                 {submitting ? 'Retirant…' : '✕ Cancel·lar venda i retirar del mercat'}
               </button>
+            </div>
+          ) : isNoMarketMode ? (
+            <div className="p-3 rounded-xl bg-base-raised border border-base-border/80 text-xs text-ink-dim space-y-1">
+              <p className="font-semibold text-ink flex items-center gap-1.5">
+                <span>ℹ️</span> Mode "Sense Mercat" actiu
+              </p>
+              <p className="text-ink-dim leading-relaxed">
+                Les vendes lliures entre usuaris estan desactivades. Només l'administrador pot treure jugadors a subhasta.
+              </p>
             </div>
           ) : (
             <form onSubmit={handleListForSale} className="space-y-3">

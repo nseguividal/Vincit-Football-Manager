@@ -3,13 +3,15 @@ import { Link } from 'react-router-dom'
 import { supabase } from '../lib/supabaseClient'
 import Topbar from '../components/Topbar'
 
+import { fetchGameSettings, DEFAULT_GAME_SETTINGS } from '../lib/settingsUtils'
+
 const TYPE_ICON = {
   purchase: '💸',
   market_new: '🆕',
   points_added: '📊',
 }
 
-function parseLogEntry(entry, teamsList = [], matchdaysList = []) {
+function parseLogEntry(entry, teamsList = [], matchdaysList = [], settings = DEFAULT_GAME_SETTINGS) {
   if (entry.type === 'points_added') {
     // Check if MATCH_RESULT tag exists: [MATCH_RESULT:teamId:matchdayId:result]
     const matchTag = entry.message?.match(/\[MATCH_RESULT:([^:]+):([^:]+)(?::([^\]]+))?\]/)
@@ -51,6 +53,14 @@ function parseLogEntry(entry, teamsList = [], matchdaysList = []) {
       }
     }
 
+    if (clean.includes('eliminat el registre')) {
+      const delMsg = clean.replace(/^.+? ha eliminat el registre de puntuacions de /i, "S'ha eliminat el registre de puntuacions de ")
+      return {
+        text: delMsg.startsWith("S'ha") ? delMsg : `S'ha eliminat el registre de puntuacions de ${teamName || 'l\'equip'}`,
+        link: null,
+      }
+    }
+
     let displayText = ''
     if (teamName) {
       displayText = matchdayLabel
@@ -72,8 +82,68 @@ function parseLogEntry(entry, teamsList = [], matchdaysList = []) {
     }
   }
 
+  // Registres de publicació al mercat / subhastes
+  const rawMsg = entry.message || ''
+  const isAuctionMode = settings?.market_mode === 'no_market'
+
+  if (
+    entry.type === 'market_new' ||
+    rawMsg.includes('posat a la venda') ||
+    rawMsg.includes('posat a subhasta') ||
+    rawMsg.includes('Nova fitxa disponible')
+  ) {
+    // Extreure el nom del jugador
+    let playerName = ''
+    let priceDetails = ''
+
+    const matchListing = rawMsg.match(/(?:📢\s*)?(?:L'administrador ha|S'ha)\s+posat\s+a\s+(?:la venda|subhasta)\s+a\s+(.+?)(?:\s+per\s+([\d.]+M(?:\s*\(\d+\s*dies\))?|\s*[\d.]+M)|\s*\(Mínim\s+[\d.]+M\)|\s*\(\d+\s*dies\)|\s*\(.*?\)|$)/i)
+    
+    if (matchListing) {
+      playerName = matchListing[1]?.trim()
+      const priceMatch = rawMsg.match(/per\s+([\d.]+M(?:\s*\(\d+\s*dies\))?)/i)
+      if (priceMatch) {
+        priceDetails = ` per ${priceMatch[1]}`
+      }
+    } else {
+      const matchNova = rawMsg.match(/Nova fitxa disponible al mercat:\s*([^(]+)(?:\(([^)]+)\))?/i)
+      if (matchNova) {
+        playerName = matchNova[1]?.trim()
+        if (matchNova[2]) priceDetails = ` per ${matchNova[2]}`
+      }
+    }
+
+    if (playerName) {
+      if (isAuctionMode) {
+        return {
+          text: `📢 S'ha posat a subhasta a ${playerName}`,
+          link: '/mercat',
+        }
+      } else {
+        return {
+          text: `📢 S'ha posat a la venda a ${playerName}${priceDetails}`,
+          link: '/mercat',
+        }
+      }
+    }
+
+    // Fallback si no ha fet match amb el nom
+    let fallbackText = rawMsg.replace(/L'administrador ha posat a la venda a /gi, "S'ha posat a la venda a ")
+    if (isAuctionMode) {
+      fallbackText = fallbackText
+        .replace(/posat a la venda a /gi, "posat a subhasta a ")
+        .replace(/per\s+[\d.]+M(?:\s*\(\d+\s*dies\))?/gi, '')
+        .replace(/\(Mínim\s+[\d.]+M\)/gi, '')
+        .replace(/\(\d+\s*dies\)/gi, '')
+        .trim()
+    }
+    return {
+      text: fallbackText,
+      link: '/mercat',
+    }
+  }
+
   return {
-    text: entry.message,
+    text: rawMsg.replace(/L'administrador ha posat a la venda a /gi, "S'ha posat a la venda a "),
     link: null,
   }
 }
@@ -94,6 +164,7 @@ export default function Home() {
   const [teams, setTeams] = useState([])
   const [matchdays, setMatchdays] = useState([])
   const [log, setLog] = useState([])
+  const [settings, setSettings] = useState(DEFAULT_GAME_SETTINGS)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
@@ -109,7 +180,7 @@ export default function Home() {
 
       setLoading(true)
       const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()
-      const [{ data: standingsData }, { data: managersData }, { data: teamsData }, { data: matchdaysData }, { data: logData }] = await Promise.all([
+      const [{ data: standingsData }, { data: managersData }, { data: teamsData }, { data: matchdaysData }, { data: logData }, gameSettings] = await Promise.all([
         supabase.from('v_total_standings').select('*'),
         supabase.from('managers').select('id, display_name, avatar_emoji'),
         supabase.from('club_teams').select('id, name'),
@@ -121,6 +192,7 @@ export default function Home() {
           .gte('created_at', thirtyDaysAgo)
           .order('created_at', { ascending: false })
           .limit(30),
+        fetchGameSettings(),
       ])
 
       const emojiMap = new Map((managersData || []).map((m) => [m.id, m.avatar_emoji || '⚽']))
@@ -133,6 +205,7 @@ export default function Home() {
       setTeams(teamsData || [])
       setMatchdays(matchdaysData || [])
       setLog(logData || [])
+      setSettings(gameSettings)
       setLoading(false)
     }
     load()
@@ -202,7 +275,7 @@ export default function Home() {
               <p className="text-ink-dim text-sm">Sense moviments encara.</p>
             ) : (
               log.map((entry) => {
-                const item = parseLogEntry(entry, teams, matchdays)
+                const item = parseLogEntry(entry, teams, matchdays, settings)
                 return (
                   <div key={entry.id} className="flex gap-2.5 sm:gap-3 items-start">
                     <span className="text-base sm:text-lg leading-none mt-0.5 select-none">
