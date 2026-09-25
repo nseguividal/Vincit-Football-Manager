@@ -8,6 +8,7 @@ export default function Login() {
   const navigate = useNavigate()
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
+  const [showPassword, setShowPassword] = useState(false)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
 
@@ -76,15 +77,28 @@ export default function Login() {
           </p>
         </div>
 
-        <label className="text-xs text-ink-dim mb-1 block">Contrasenya</label>
-        <input
-          type="password"
-          className="input mb-2"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          autoComplete="current-password"
-          required
-        />
+        <div className="mb-2">
+          <label className="text-xs text-ink-dim mb-1 block">Contrasenya</label>
+          <div className="relative">
+            <input
+              type={showPassword ? 'text' : 'password'}
+              className="input w-full pr-10"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              autoComplete="current-password"
+              required
+            />
+            <button
+              type="button"
+              onClick={() => setShowPassword(!showPassword)}
+              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-ink-dim hover:text-ink text-sm p-1 transition-colors"
+              tabIndex={-1}
+              title={showPassword ? 'Amagar contrasenya' : 'Mostrar contrasenya'}
+            >
+              {showPassword ? '🙈' : '👁️'}
+            </button>
+          </div>
+        </div>
 
         {error && <p className="text-danger text-sm mt-2">{error}</p>}
 

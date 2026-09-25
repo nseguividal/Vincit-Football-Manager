@@ -2,6 +2,7 @@ import { Routes, Route, Navigate } from 'react-router-dom'
 import { Analytics } from '@vercel/analytics/react'
 import Sidebar from './components/Sidebar'
 import ProtectedRoute from './components/ProtectedRoute'
+import ForcePasswordChangeModal from './components/ForcePasswordChangeModal'
 import Login from './pages/Login'
 import Home from './pages/Home'
 import Market from './pages/Market'
@@ -13,6 +14,7 @@ import Admin from './pages/Admin'
 export default function App() {
   return (
     <>
+      <ForcePasswordChangeModal />
       <Routes>
         <Route path="/login" element={<Login />} />
       <Route
