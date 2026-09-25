@@ -1,4 +1,5 @@
 import { Routes, Route, Navigate } from 'react-router-dom'
+import { Analytics } from '@vercel/analytics/react'
 import Sidebar from './components/Sidebar'
 import ProtectedRoute from './components/ProtectedRoute'
 import Login from './pages/Login'
@@ -11,8 +12,9 @@ import Admin from './pages/Admin'
 
 export default function App() {
   return (
-    <Routes>
-      <Route path="/login" element={<Login />} />
+    <>
+      <Routes>
+        <Route path="/login" element={<Login />} />
       <Route
         path="/*"
         element={
@@ -47,5 +49,7 @@ export default function App() {
         }
       />
     </Routes>
+    <Analytics />
+    </>
   )
 }
