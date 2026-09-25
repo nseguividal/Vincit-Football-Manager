@@ -3,6 +3,7 @@ import { supabase } from '../lib/supabaseClient'
 import { formatDateDMY, getCurrentMatchday } from '../lib/matchdayUtils'
 import Topbar from '../components/Topbar'
 import Toast from '../components/Toast'
+import Jersey from '../components/Jersey'
 
 function timeLeft(expiresAt) {
   if (!expiresAt) return null
@@ -97,7 +98,7 @@ function TeamsAndPlayersPanel() {
         supabase
           .from('club_players')
           .select(`
-            id, full_name, position, team_id, active, created_at,
+            id, full_name, position, dorsal, team_id, active, created_at,
             club_teams ( id, name, category ),
             fantasy_cards (
               id, current_price, status, owner_manager_id,
@@ -370,9 +371,14 @@ function TeamsAndPlayersPanel() {
                         className="border-b border-base-border/60 last:border-0 hover:bg-base-surface/40 transition-colors"
                       >
                         <td className="py-2.5 sm:py-3 px-3 sm:px-4 font-medium text-ink">
-                          <div className="font-semibold text-ink text-xs sm:text-sm">{p.full_name}</div>
-                          <div className="text-[11px] text-ink-dim sm:hidden">
-                            {p.club_teams?.name}
+                          <div className="flex items-center gap-2.5">
+                            <Jersey number={p.dorsal} className="w-7 h-7 shrink-0" />
+                            <div>
+                              <div className="font-semibold text-ink text-xs sm:text-sm">{p.full_name}</div>
+                              <div className="text-[11px] text-ink-dim sm:hidden">
+                                {p.club_teams?.name}
+                              </div>
+                            </div>
                           </div>
                         </td>
 
@@ -540,6 +546,7 @@ function TeamsAndPlayersPanel() {
 
 function CreatePlayerModal({ teams, defaultTeamId, onClose, onSuccess }) {
   const [fullName, setFullName] = useState('')
+  const [dorsal, setDorsal] = useState('')
   const [teamId, setTeamId] = useState(defaultTeamId || teams[0]?.id || '')
   const [position, setPosition] = useState('ALA')
   const [price, setPrice] = useState('5')
@@ -561,6 +568,8 @@ function CreatePlayerModal({ teams, defaultTeamId, onClose, onSuccess }) {
     setSaving(true)
     setError('')
 
+    const dorsalNum = dorsal !== '' && !isNaN(Number(dorsal)) ? parseInt(dorsal, 10) : null
+
     try {
       // 1. Intentar via RPC atòmic
       const { error: rpcError } = await supabase.rpc('admin_create_player', {
@@ -569,6 +578,7 @@ function CreatePlayerModal({ teams, defaultTeamId, onClose, onSuccess }) {
         p_position: position,
         p_initial_price: Number(price) || 5,
         p_status: status,
+        p_dorsal: dorsalNum,
       })
 
       if (rpcError) {
@@ -579,6 +589,7 @@ function CreatePlayerModal({ teams, defaultTeamId, onClose, onSuccess }) {
             team_id: teamId,
             full_name: fullName.trim(),
             position,
+            dorsal: dorsalNum,
             active: true,
           })
           .select()
@@ -621,17 +632,34 @@ function CreatePlayerModal({ teams, defaultTeamId, onClose, onSuccess }) {
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <label className="text-sm font-medium text-ink-dim mb-1 block">Nom i cognoms *</label>
-            <input
-              type="text"
-              className="input text-sm"
-              placeholder="p.ex. Marc Soler Vidal"
-              value={fullName}
-              onChange={(e) => setFullName(e.target.value)}
-              required
-              autoFocus
-            />
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div className="sm:col-span-2">
+              <label className="text-sm font-medium text-ink-dim mb-1 block">Nom i cognoms *</label>
+              <input
+                type="text"
+                className="input text-sm"
+                placeholder="p.ex. Marc Soler Vidal"
+                value={fullName}
+                onChange={(e) => setFullName(e.target.value)}
+                required
+                autoFocus
+              />
+            </div>
+            <div>
+              <label className="text-sm font-medium text-ink-dim mb-1 block">Dorsal</label>
+              <div className="flex items-center gap-2">
+                <input
+                  type="number"
+                  min="0"
+                  max="99"
+                  className="input text-sm text-center font-bold"
+                  placeholder="10"
+                  value={dorsal}
+                  onChange={(e) => setDorsal(e.target.value)}
+                />
+                <Jersey number={dorsal} className="w-9 h-9 shrink-0" />
+              </div>
+            </div>
           </div>
 
           <div>
@@ -735,6 +763,7 @@ function CreatePlayerModal({ teams, defaultTeamId, onClose, onSuccess }) {
 function EditPlayerModal({ player, teams, onClose, onSaved, onDeleted }) {
   const card = Array.isArray(player.fantasy_cards) ? player.fantasy_cards[0] : player.fantasy_cards
   const [fullName, setFullName] = useState(player.full_name)
+  const [dorsal, setDorsal] = useState(player.dorsal ?? '')
   const [teamId, setTeamId] = useState(player.team_id)
   const [position, setPosition] = useState(player.position)
   const [price, setPrice] = useState(card?.current_price ?? 5)
@@ -754,6 +783,8 @@ function EditPlayerModal({ player, teams, onClose, onSaved, onDeleted }) {
     setSaving(true)
     setError('')
 
+    const dorsalNum = dorsal !== '' && !isNaN(Number(dorsal)) ? parseInt(dorsal, 10) : null
+
     try {
       const { error: rpcError } = await supabase.rpc('admin_update_player', {
         p_player_id: player.id,
@@ -762,13 +793,19 @@ function EditPlayerModal({ player, teams, onClose, onSaved, onDeleted }) {
         p_position: position,
         p_price: Number(price),
         p_status: status,
+        p_dorsal: dorsalNum,
       })
 
       if (rpcError) {
         // Fallback directe
         await supabase
           .from('club_players')
-          .update({ full_name: fullName.trim(), team_id: teamId, position })
+          .update({
+            full_name: fullName.trim(),
+            team_id: teamId,
+            position,
+            dorsal: dorsalNum,
+          })
           .eq('id', player.id)
 
         if (card?.id) {
@@ -818,15 +855,32 @@ function EditPlayerModal({ player, teams, onClose, onSaved, onDeleted }) {
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <label className="text-sm font-medium text-ink-dim mb-1 block">Nom i cognoms *</label>
-            <input
-              type="text"
-              className="input text-sm"
-              value={fullName}
-              onChange={(e) => setFullName(e.target.value)}
-              required
-            />
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div className="sm:col-span-2">
+              <label className="text-sm font-medium text-ink-dim mb-1 block">Nom i cognoms *</label>
+              <input
+                type="text"
+                className="input text-sm"
+                value={fullName}
+                onChange={(e) => setFullName(e.target.value)}
+                required
+              />
+            </div>
+            <div>
+              <label className="text-sm font-medium text-ink-dim mb-1 block">Dorsal</label>
+              <div className="flex items-center gap-2">
+                <input
+                  type="number"
+                  min="0"
+                  max="99"
+                  className="input text-sm text-center font-bold"
+                  placeholder="10"
+                  value={dorsal}
+                  onChange={(e) => setDorsal(e.target.value)}
+                />
+                <Jersey number={dorsal} className="w-9 h-9 shrink-0" />
+              </div>
+            </div>
           </div>
 
           <div>

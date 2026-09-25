@@ -61,10 +61,10 @@ function parseLogEntry(entry, teamsList = [], matchdaysList = []) {
     }
 
     const link = teamId && matchdayId
-      ? `/equips?team=${teamId}&matchday=${matchdayId}`
-      : teamId
-      ? `/equips?team=${teamId}`
-      : `/equips`
+      ? `/jornades?matchday=${matchdayId}&team=${teamId}`
+      : matchdayId
+      ? `/jornades?matchday=${matchdayId}`
+      : `/jornades`
 
     return {
       text: displayText,
@@ -78,7 +78,18 @@ function parseLogEntry(entry, teamsList = [], matchdaysList = []) {
   }
 }
 
+import { useAuth } from '../context/AuthContext'
+import {
+  MOCK_STANDINGS,
+  MOCK_TEAMS,
+  MOCK_MATCHDAYS,
+  MOCK_ACTIVITY_LOG,
+} from '../lib/mockData'
+
+import DemoBanner from '../components/DemoBanner'
+
 export default function Home() {
+  const { manager } = useAuth()
   const [standings, setStandings] = useState([])
   const [teams, setTeams] = useState([])
   const [matchdays, setMatchdays] = useState([])
@@ -87,6 +98,17 @@ export default function Home() {
 
   useEffect(() => {
     async function load() {
+      if (!manager) {
+        setStandings(MOCK_STANDINGS)
+        setTeams(MOCK_TEAMS)
+        setMatchdays(MOCK_MATCHDAYS)
+        setLog(MOCK_ACTIVITY_LOG)
+        setLoading(false)
+        return
+      }
+
+      setLoading(true)
+      const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()
       const [{ data: standingsData }, { data: managersData }, { data: teamsData }, { data: matchdaysData }, { data: logData }] = await Promise.all([
         supabase.from('v_total_standings').select('*'),
         supabase.from('managers').select('id, display_name, avatar_emoji'),
@@ -96,6 +118,7 @@ export default function Home() {
           .from('activity_log')
           .select('id, type, message, created_at, managers(display_name, avatar_emoji)')
           .in('type', ['market_new', 'points_added', 'purchase'])
+          .gte('created_at', thirtyDaysAgo)
           .order('created_at', { ascending: false })
           .limit(30),
       ])
@@ -113,15 +136,18 @@ export default function Home() {
       setLoading(false)
     }
     load()
-  }, [])
+  }, [manager])
 
   return (
     <div>
       <Topbar title="Classificació" subtitle="Classificació general i últims moviments" />
 
-      <div className="p-4 sm:p-8 grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6">
-        {/* Classificació */}
-        <div className="lg:col-span-2 card p-4 sm:p-6">
+      <div className="p-4 sm:p-8 space-y-4 sm:space-y-6">
+        <DemoBanner />
+
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6">
+          {/* Classificació */}
+          <div className="lg:col-span-2 card p-4 sm:p-6">
           <h2 className="font-display font-semibold text-lg text-ink mb-3 sm:mb-4">Classificació</h2>
           {loading ? (
             <p className="text-ink-dim text-sm py-4">Carregant…</p>
@@ -209,5 +235,6 @@ export default function Home() {
         </div>
       </div>
     </div>
+  </div>
   )
 }

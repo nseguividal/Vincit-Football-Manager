@@ -29,6 +29,7 @@ create table club_players (
   team_id       uuid not null references club_teams(id) on delete cascade,
   full_name     text not null,
   position      text not null check (position in ('PORTER','TANCA','ALA','PIVOT')),
+  dorsal        int,
   photo_url     text,
   active        boolean not null default true,
   created_at    timestamptz not null default now()
@@ -108,6 +109,8 @@ create table player_matchday_stats (
   goals          int not null default 0,
   assists        int not null default 0,
   saves          int not null default 0,
+  match_result   text check (match_result in ('win', 'draw', 'loss')),
+  match_score    text,
   entered_by     uuid references managers(id),   -- quin entrenador ho ha introduït
   created_at     timestamptz not null default now(),
   unique (club_player_id, matchday_id)
@@ -142,7 +145,8 @@ create table activity_log (
 -- ----------------------------------------------------------------------------
 -- 9. VISTA: classificació setmanal (punts totals dels 5 titulars, sumats per jornada)
 -- ----------------------------------------------------------------------------
-create or replace view v_weekly_scores as
+create or replace view v_weekly_scores
+with (security_invoker = true) as
 select
   m.id            as manager_id,
   m.display_name  as display_name,
@@ -160,7 +164,8 @@ where md.is_extra = false or md.is_extra is null
 group by m.id, m.display_name, m.avatar_emoji, md.id, md.number;
 
 -- Classificació general (suma de totes les jornades fins ara)
-create or replace view v_total_standings as
+create or replace view v_total_standings
+with (security_invoker = true) as
 select manager_id, display_name, avatar_emoji, sum(points) as total_points
 from v_weekly_scores
 group by manager_id, display_name, avatar_emoji

@@ -12,8 +12,8 @@ export default function Sidebar() {
     { to: '/', label: 'Classificació', icon: '🏆' },
     { to: '/mercat', label: 'Mercat de fitxatges', icon: '💰' },
     { to: '/plantilla', label: 'El teu cinc', icon: '👥' },
-    { to: '/equips', label: 'Resum d\'equips', icon: '📋' },
-    ...((isAdmin || isCoach) ? [{ to: '/formularis', label: 'Afegir puntuacions', icon: '📝' }] : []),
+    { to: '/jornades', label: 'Jornades', icon: '📅' },
+    ...((manager && (isAdmin || isCoach)) ? [{ to: '/formularis', label: 'Afegir puntuacions', icon: '📝' }] : []),
   ]
 
   // Tancar el menú mòbil automàticament en canviar de pàgina
@@ -49,7 +49,7 @@ export default function Sidebar() {
           <div className="flex items-center gap-2.5">
             <ClubLogo className="w-8 h-8" />
             <div>
-              <span className="font-display font-bold text-sm tracking-tight text-ink">VINCIT</span>
+              <span className="font-display font-bold text-sm tracking-tight text-ink">C.E. VINCIT</span>
               <span className="text-[10px] text-ink-dim tracking-wider ml-1 font-semibold">FANTASY</span>
             </div>
           </div>
@@ -88,7 +88,7 @@ export default function Sidebar() {
               <div className="flex items-center gap-2.5">
                 <ClubLogo className="w-9 h-9" />
                 <div>
-                  <div className="font-display font-semibold leading-tight text-ink text-sm">VINCIT</div>
+                  <div className="font-display font-semibold leading-tight text-ink text-sm">C.E. VINCIT</div>
                   <div className="text-[10px] text-ink-dim tracking-wide leading-tight">FANTASY</div>
                 </div>
               </div>
@@ -113,10 +113,14 @@ export default function Sidebar() {
                     onClick={() => setIsOpen(false)}
                     className={({ isActive }) =>
                       `flex items-center gap-3 px-3 py-3 rounded-lg text-sm min-h-[44px] transition-colors ${
-                        isActive
-                          ? isForm
-                            ? 'bg-emerald-500/20 border border-emerald-500/60 text-emerald-300 font-semibold'
-                            : 'bg-accent text-base font-semibold'
+                        isForm
+                          ? `border mt-2 ${
+                              isActive
+                                ? 'bg-emerald-500/20 border-emerald-500 text-emerald-300 font-semibold'
+                                : 'border-base-border text-ink-dim hover:bg-base-raised hover:text-ink'
+                            }`
+                          : isActive
+                          ? 'bg-accent text-base font-semibold'
                           : 'text-ink-dim hover:bg-base-raised hover:text-ink'
                       }`
                     }
@@ -186,7 +190,7 @@ export default function Sidebar() {
         <div className="px-5 py-6 flex items-center gap-3 border-b border-base-border">
           <ClubLogo className="w-10 h-10" />
           <div>
-            <div className="font-display font-semibold leading-tight text-ink">VINCIT</div>
+            <div className="font-display font-semibold leading-tight text-ink">C.E. VINCIT</div>
             <div className="text-xs text-ink-dim tracking-wide leading-tight">FANTASY</div>
           </div>
         </div>
@@ -201,10 +205,14 @@ export default function Sidebar() {
                 end={item.to === '/'}
                 className={({ isActive }) =>
                   `flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-colors ${
-                    isActive
-                      ? isForm
-                        ? 'bg-emerald-500/20 border border-emerald-500/60 text-emerald-300 font-semibold'
-                        : 'bg-accent text-base font-semibold'
+                    isForm
+                      ? `border mt-3 ${
+                          isActive
+                            ? 'bg-emerald-500/20 border-emerald-500 text-emerald-300 font-semibold'
+                            : 'border-base-border text-ink-dim hover:bg-base-raised hover:text-ink'
+                        }`
+                      : isActive
+                      ? 'bg-accent text-base font-semibold'
                       : 'text-ink-dim hover:bg-base-raised hover:text-ink'
                   }`
                 }

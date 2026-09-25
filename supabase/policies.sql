@@ -99,6 +99,16 @@ create policy "coach_update_stats" on player_matchday_stats for update
         and cp.id = player_matchday_stats.club_player_id
     )
   );
+create policy "coach_delete_stats" on player_matchday_stats for delete
+  using (
+    is_current_user_admin() or
+    exists (
+      select 1 from coach_assignments ca
+      join club_players cp on cp.team_id = ca.team_id
+      where ca.manager_id = current_manager_id()
+        and cp.id = player_matchday_stats.club_player_id
+    )
+  );
 
 -- ---------- ESCRIPTURA: LOG ----------
 create policy "insert_own_log" on activity_log for insert

@@ -15,7 +15,7 @@ export default function Forms() {
         subtitle="Espai per a entrenadors per introduir les actes i estadístiques dels partits"
       />
 
-      <div className="p-4 sm:p-8 max-w-3xl">
+      <div className="p-4 sm:p-8 max-w-3xl mx-auto">
         {hasAccess ? (
           <CoachForm />
         ) : (

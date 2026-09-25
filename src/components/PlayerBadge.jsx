@@ -1,15 +1,23 @@
+import Jersey from './Jersey'
+
 const POS_EMOJIS = {
   PORTER: '🧤',
+  POR: '🧤',
   TANCA: '🛡️',
+  TAN: '🛡️',
   ALA: '⚡',
   PIVOT: '🎯',
+  PIV: '🎯',
 }
 
 const POSITION_LABEL = {
   PORTER: 'PORTER',
+  POR: 'PORTER',
   TANCA: 'TANCA',
+  TAN: 'TANCA',
   ALA: 'ALA',
   PIVOT: 'PIVOT',
+  PIV: 'PIVOT',
 }
 
 /**
@@ -19,6 +27,7 @@ const POSITION_LABEL = {
 export default function PlayerBadge({
   name,
   position,
+  dorsal,
   totalPoints,
   rating,
   price,
@@ -30,7 +39,7 @@ export default function PlayerBadge({
   const isSm = size === 'sm'
   const dims = isSm
     ? 'w-8 h-8 text-[11px]'
-    : 'w-9 h-9 sm:w-11 sm:h-11 text-xs sm:text-sm'
+    : 'w-10 h-10 sm:w-12 sm:h-12 text-xs sm:text-sm'
 
   const posUpper = position?.toUpperCase()
   const emoji = POS_EMOJIS[posUpper] || '⚽'
@@ -42,33 +51,42 @@ export default function PlayerBadge({
       onClick={onClick}
       className={`flex flex-col items-center gap-0.5 sm:gap-1 group ${onClick ? 'cursor-pointer' : 'cursor-default'} relative`}
     >
-      <div
-        className={`${dims} rounded-full flex items-center justify-center font-display font-bold border-2 transition-transform shadow-sm relative ${
-          highlight
-            ? 'bg-black/35 text-white border-white/70 group-hover:scale-105'
-            : 'bg-base-raised text-ink border-base-border group-hover:scale-105'
-        }`}
-      >
-        {/* Rodona a dalt a l'esquerra amb els punts acumulats */}
-        {totalPoints != null && (
+      <div className="relative flex items-center justify-center transition-transform group-hover:scale-110">
+        {/* Rodona a dalt a l'esquerra amb els punts acumulats o estat de jornada */}
+        {totalPoints !== undefined && totalPoints !== null && (
           <span
-            title={`Punts acumulats: ${totalPoints} pts (jornades normals)`}
-            className="absolute -top-1.5 -left-2 min-w-[20px] sm:min-w-[22px] h-[20px] sm:h-[22px] px-1 text-[10px] sm:text-[11px] font-display font-bold leading-none bg-yellow-400 text-black border border-yellow-300 rounded-full shadow-md flex items-center justify-center z-10"
+            title={typeof totalPoints === 'number' ? `Punts: ${totalPoints} pts` : totalPoints === '⏳' ? 'Pendent de jugar' : 'No ha jugat (0 pts)'}
+            className={`absolute -top-1 -left-2 min-w-[20px] sm:min-w-[22px] h-[20px] sm:h-[22px] px-1 text-[10px] sm:text-[11px] font-display font-bold leading-none rounded-full shadow-md flex items-center justify-center z-10 select-none ${
+              totalPoints === '⏳'
+                ? 'bg-slate-800 text-amber-300 border border-amber-400/60 text-[9px] sm:text-[10px]'
+                : totalPoints === '—'
+                ? 'bg-zinc-800 text-zinc-400 border border-zinc-600 font-bold'
+                : 'bg-yellow-400 text-black border border-yellow-300'
+            }`}
           >
             {totalPoints}
           </span>
         )}
 
-        {/* Emoticona de posició o rating */}
-        <span className="text-sm sm:text-base select-none">
-          {rating && rating !== '—' && rating !== '-' ? rating : emoji}
-        </span>
+        {/* Samarreta amb dorsal gran i contorn (o rating numèric si s'escau) */}
+        {rating && rating !== '—' && rating !== '-' ? (
+          <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-full bg-base-raised text-ink border-2 border-base-border flex items-center justify-center font-display font-bold">
+            <span className="text-sm sm:text-base select-none font-bold">{rating}</span>
+          </div>
+        ) : (
+          <Jersey
+            number={dorsal}
+            outline={highlight ? 'yellow' : 'white'}
+            glow={highlight}
+            className={isSm ? 'w-9 h-9' : 'w-12 h-12 sm:w-14 sm:h-14'}
+          />
+        )}
 
         {/* Etiqueta de venda a dalt a la dreta */}
         {isForSale && (
           <span
             title="Aquest jugador està posat a la venda al mercat"
-            className="absolute -top-1.5 -right-1.5 text-[11px] leading-none bg-[#0B1220] border border-white/30 rounded-full p-0.5 shadow-md flex items-center justify-center z-10"
+            className="absolute -top-1 -right-1 text-[11px] leading-none bg-[#0B1220] border border-white/30 rounded-full p-0.5 shadow-md flex items-center justify-center z-10"
           >
             🏷️
           </span>

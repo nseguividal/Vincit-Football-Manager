@@ -89,10 +89,102 @@ export function isMatchdayActiveNow(matchday) {
 }
 
 /**
+ * Comprova si una jornada ja ha finalitzat segons les dates
+ */
+export function isMatchdayFinished(matchday) {
+  if (!matchday) return false
+  const now = new Date()
+  const nowTime = now.getTime()
+
+  if (matchday.ends_at) {
+    const eStr = String(matchday.ends_at).split('T')[0].split(' ')[0]
+    const [eY, eM, eD] = eStr.split('-').map(Number)
+    if (eY && eM && eD) {
+      const endTime = new Date(eY, eM - 1, eD, 23, 59, 59, 999).getTime()
+      return nowTime > endTime
+    }
+  } else if (matchday.starts_at) {
+    const sStr = String(matchday.starts_at).split('T')[0].split(' ')[0]
+    const [sY, sM, sD] = sStr.split('-').map(Number)
+    if (sY && sM && sD) {
+      const endTime = new Date(sY, sM - 1, sD, 23, 59, 59, 999).getTime()
+      return nowTime > endTime
+    }
+  }
+  return false
+}
+
+/**
  * Retorna la jornada que està activa/en curs ara mateix (00:00h a 24:00h), o null si no n'hi ha cap
  */
 export function getActiveMatchdayNow(matchdays) {
   if (!matchdays || matchdays.length === 0) return null
   return matchdays.find((m) => isMatchdayActiveNow(m)) || null
 }
+
+/**
+ * Retorna la jornada per defecte a mostrar a la pestanya de Jornades:
+ * 1. Si hi ha una jornada en joc ara mateix (activa), retorna aquesta.
+ * 2. Si no hi ha cap jornada activa, retorna l'última jornada finalitzada (per data).
+ * 3. Fallback: la primera jornada per número (ex: Jornada 1).
+ */
+export function getDefaultDisplayMatchday(matchdays, allStats = []) {
+  if (!matchdays || matchdays.length === 0) return null
+
+  // 1. Si hi ha una jornada en joc / activa ara mateix
+  const activeNow = matchdays.find((m) => isMatchdayActiveNow(m))
+  if (activeNow) return activeNow
+
+  // 2. Si no hi ha cap jornada activa, buscar l'última jornada finalitzada per data
+  const finishedMatchdays = matchdays
+    .filter((m) => isMatchdayFinished(m))
+    .sort((a, b) => b.number - a.number)
+
+  if (finishedMatchdays.length > 0) {
+    return finishedMatchdays[0]
+  }
+
+  // 3. Fallback: la primera jornada per número (ex: Jornada 1)
+  const sortedByNum = [...matchdays].sort((a, b) => a.number - b.number)
+  return sortedByNum[0]
+}
+
+/**
+ * Formata el nom de l'equip amb prefix C.E. Vincit
+ */
+export function formatVincitTeamName(name) {
+  if (!name) return 'C.E. Vincit'
+  const trimmed = String(name).trim()
+  if (/^c\.?e\.?\s*vincit/i.test(trimmed)) {
+    return trimmed
+  }
+  return `C.E. Vincit ${trimmed}`
+}
+
+/**
+ * Neteja el nom del rival en els registres de partit
+ */
+export function cleanOpponentName(name) {
+  if (!name || typeof name !== 'string') return 'Rival'
+  let n = name.trim()
+  try {
+    n = decodeURIComponent(n)
+  } catch {}
+  if (
+    !n ||
+    n.toLowerCase() === 'home' ||
+    n.toLowerCase() === 'away' ||
+    n.toLowerCase().startsWith('away:') ||
+    n.toLowerCase().startsWith('home:') ||
+    n.toLowerCase() === 'undefined' ||
+    n.toLowerCase() === 'null' ||
+    n.toLowerCase() === 'rival'
+  ) {
+    return 'Rival'
+  }
+  const stripped = n.replace(/^(away|home):\s*/i, '').trim()
+  return stripped || 'Rival'
+}
+
+
 

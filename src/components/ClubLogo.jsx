@@ -19,10 +19,10 @@ export default function ClubLogo({
 
   return (
     <div
-      className={`${className} ${rounded} bg-white p-1 flex items-center justify-center shadow-sm shrink-0 overflow-hidden border border-white/20`}
+      className={`${className} ${rounded} bg-white p-0.5 flex items-center justify-center shadow-sm shrink-0 overflow-hidden border border-white/30`}
     >
       <img
-        src="/cropped-logovincitgran.png"
+        src="/favicon.png"
         alt="Vincit Club Logo"
         className={imgClassName}
         onError={() => setHasError(true)}

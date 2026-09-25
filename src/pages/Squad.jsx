@@ -5,8 +5,11 @@ import { useAuth } from '../context/AuthContext'
 import Topbar from '../components/Topbar'
 import Pitch from '../components/Pitch'
 import PlayerBadge from '../components/PlayerBadge'
+import Jersey from '../components/Jersey'
 import Toast from '../components/Toast'
+import DemoBanner from '../components/DemoBanner'
 import { getActiveMatchdayNow, formatDateDMY } from '../lib/matchdayUtils'
+import { MOCK_MANAGERS, getMockSquadData } from '../lib/mockData'
 
 const POS_ORDER = { PORTER: 1, TANCA: 2, ALA: 3, PIVOT: 4 }
 
@@ -34,6 +37,20 @@ function calculatePlayerPoints(clubPlayer) {
   }, 0)
 }
 
+function timeLeft(expiresAt) {
+  if (!expiresAt) return null
+  const diffMs = new Date(expiresAt).getTime() - Date.now()
+  if (diffMs <= 0) return 'Expirat'
+  const days = Math.floor(diffMs / (1000 * 60 * 60 * 24))
+  const hours = Math.floor((diffMs % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60))
+  const minutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60))
+
+  if (days > 0) return `${days}d ${hours}h ${minutes}m`
+  if (hours > 0) return `${hours}h ${minutes}m`
+  if (minutes > 0) return `${minutes}m`
+  return '< 1m'
+}
+
 export default function Squad() {
   const { manager: authManager } = useAuth()
   const [searchParams, setSearchParams] = useSearchParams()
@@ -59,6 +76,14 @@ export default function Squad() {
   const canEdit = isOwnSquad
 
   useEffect(() => {
+    if (!authManager) {
+      setManagers(MOCK_MANAGERS)
+      if (!searchParams.get('manager')) {
+        setSearchParams({ manager: MOCK_MANAGERS[0].id }, { replace: true })
+      }
+      return
+    }
+
     supabase
       .from('managers')
       .select('id, display_name, avatar_emoji, budget')
@@ -85,13 +110,29 @@ export default function Squad() {
     if (!selectedManagerId) return
     setLoading(true)
     try {
+      if (!authManager) {
+        const { cardsData, lineupData, matchdaysData } = getMockSquadData(selectedManagerId)
+        setMatchdays(matchdaysData || [])
+        setCards(cardsData || [])
+        const lu = {}
+        const luCards = {}
+        ;(lineupData || []).forEach((l) => {
+          lu[l.slot] = l.fantasy_card_id
+          if (l.fantasy_cards) {
+            luCards[l.slot] = l.fantasy_cards
+          }
+        })
+        setLineup(lu)
+        setLineupCards(luCards)
+        return
+      }
       const [{ data: cardsData }, { data: lineupData }, { data: matchdaysData }] = await Promise.all([
         supabase
           .from('fantasy_cards')
           .select(`
             id, current_price, status, market_expires_at,
             club_players (
-              id, full_name, position, club_teams ( name ),
+              id, full_name, position, dorsal, club_teams ( name ),
               player_matchday_stats (
                 points,
                 matchdays ( id, is_extra )
@@ -106,7 +147,7 @@ export default function Squad() {
             fantasy_cards (
               id, current_price, status, owner_manager_id,
               club_players (
-                id, full_name, position, club_teams ( name ),
+                id, full_name, position, dorsal, club_teams ( name ),
                 player_matchday_stats (
                   points,
                   matchdays ( id, is_extra )
@@ -188,6 +229,7 @@ export default function Squad() {
         bySlot[slot] = {
           name: c.club_players?.full_name,
           position: c.club_players?.position,
+          dorsal: c.club_players?.dorsal,
           totalPoints: calculatePlayerPoints(c.club_players),
           isForSale: c.status === 'market',
         }
@@ -348,6 +390,8 @@ export default function Squad() {
       />
 
       <div className="p-4 sm:p-8">
+        <DemoBanner className="mb-5" />
+
         {/* Selector d'usuari NOMÉS visible a mòbil (a dalt de tot, abans del 5 titular) */}
         <div className="block lg:hidden card p-3 sm:p-4 mb-5">
           <label className="text-xs font-semibold text-ink-dim block mb-1.5">
@@ -436,6 +480,7 @@ export default function Squad() {
                       key={c.id}
                       name={c.club_players?.full_name}
                       position={c.club_players?.position}
+                      dorsal={c.club_players?.dorsal}
                       totalPoints={calculatePlayerPoints(c.club_players)}
                       isForSale={c.status === 'market'}
                       onClick={canEdit ? () => handleBenchClick(c) : undefined}
@@ -500,16 +545,17 @@ export default function Squad() {
                         }`}
                       >
                         <div className="flex items-center gap-2.5 min-w-0">
-                          {/* Cercle amb posició: groc si està alineat, gris si no */}
+                          {/* Samarreta amb dorsal: groc il·luminat si és titular, blanc si és suplent */}
                           <div
                             title={isTitular ? 'Jugador alineat al cinc titular' : 'Jugador a la banqueta'}
-                            className={`w-8 h-8 sm:w-9 sm:h-9 rounded-full flex items-center justify-center text-sm sm:text-base shrink-0 shadow-sm transition-colors ${
-                              isTitular
-                                ? 'bg-accent/20 border-2 border-accent'
-                                : 'bg-base-surface border-2 border-base-border'
-                            }`}
+                            className="flex items-center justify-center shrink-0"
                           >
-                            <span className="select-none">{posInfo.emoji}</span>
+                            <Jersey
+                              number={player?.dorsal}
+                              outline={isTitular ? 'yellow' : 'white'}
+                              glow={isTitular}
+                              className="w-10 h-10 sm:w-11 sm:h-11 shrink-0"
+                            />
                           </div>
 
                           <div className="min-w-0">
@@ -715,15 +761,17 @@ function ManagePlayerModal({
         {/* Capçalera del modal */}
         <div className="flex items-center justify-between border-b border-base-border/80 pb-3.5 gap-3">
           <div className="flex items-center gap-3 min-w-0">
-            <div className={`px-3 py-2 rounded-xl flex items-center justify-center gap-1.5 font-display font-bold text-xs sm:text-sm tracking-wide shrink-0 ${posInfo.badge}`}>
-              <span>{posKey || posInfo.label?.toUpperCase()}</span>
-              <span>{posInfo.emoji}</span>
-            </div>
-            <div className="min-w-0">
-              <h3 className="font-display font-semibold text-lg text-ink truncate">
-                {player?.full_name}
-              </h3>
-              <p className="text-xs text-ink-dim truncate">
+            <Jersey number={player?.dorsal} className="w-11 h-11 shrink-0" />
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2 flex-wrap">
+                <h3 className="font-display font-semibold text-base sm:text-lg text-ink leading-tight break-words">
+                  {player?.full_name}
+                </h3>
+                <span className={`px-2 py-0.5 rounded-full font-semibold text-[10px] sm:text-xs ${posInfo.badge}`}>
+                  {posKey || posInfo.label?.toUpperCase()}
+                </span>
+              </div>
+              <p className="text-xs text-ink-dim leading-snug break-words mt-0.5">
                 {player?.club_teams?.name} · Valor actual: <strong className="text-accent">{card.current_price}M</strong>
               </p>
             </div>
@@ -781,7 +829,10 @@ function ManagePlayerModal({
           {isOnMarket ? (
             <div className="space-y-3">
               <p className="text-xs text-amber-300/90 leading-relaxed bg-amber-500/10 border border-amber-500/20 p-2.5 rounded-lg">
-                Aquest jugador ja està publicat al mercat per <strong>{card.current_price}M</strong>. La resta de mànagers poden fer ofertes per fitxar-lo.
+                Aquest jugador ja està publicat al mercat per <strong>{card.current_price}M</strong>
+                {card.market_expires_at && (
+                  <> (temps restant: <strong>{timeLeft(card.market_expires_at)}</strong>)</>
+                )}. La resta de mànagers poden fer ofertes per fitxar-lo.
               </p>
               <button
                 type="button"
@@ -956,12 +1007,9 @@ function SelectPlayerModal({
                     }`}
                   >
                     <div className="flex items-center gap-2.5 min-w-0">
-                      <div className="w-8 h-8 rounded-full bg-base-raised border border-base-border flex items-center justify-center font-display font-bold text-xs text-accent">
-                        {slot.shortPos}
-                      </div>
+                      <Jersey number={c.club_players?.dorsal} outline="white" className="w-8 h-8 shrink-0" />
                       <div className="min-w-0">
                         <div className="font-semibold text-sm text-ink truncate flex items-center gap-1.5">
-                          <span className="text-sm select-none">{slot.icon}</span>
                           <span className="truncate">{c.club_players?.full_name}</span>
                           {isForSale && (
                             <span className="text-[10px] leading-none bg-[#0B1220] border border-white/30 rounded-full p-0.5 shadow-sm">

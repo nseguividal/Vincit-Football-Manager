@@ -8,7 +8,7 @@ dist
 dist-ssr
 *.local
 
-# Variables d'entorn i secrets (MAI pujar claus reals a GitHub)
+# Variables d'entorn i secrets 
 .env
 .env.local
 .env.development.local

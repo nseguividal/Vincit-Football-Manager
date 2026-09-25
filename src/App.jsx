@@ -1,11 +1,11 @@
-import { Routes, Route } from 'react-router-dom'
+import { Routes, Route, Navigate } from 'react-router-dom'
 import Sidebar from './components/Sidebar'
 import ProtectedRoute from './components/ProtectedRoute'
 import Login from './pages/Login'
 import Home from './pages/Home'
 import Market from './pages/Market'
 import Squad from './pages/Squad'
-import Teams from './pages/Teams'
+import Matchdays from './pages/Matchdays'
 import Forms from './pages/Forms'
 import Admin from './pages/Admin'
 
@@ -21,9 +21,10 @@ export default function App() {
             <main className="flex-1 min-w-0">
               <Routes>
                 <Route path="/" element={<Home />} />
+                <Route path="/jornades" element={<Matchdays />} />
                 <Route path="/mercat" element={<Market />} />
                 <Route path="/plantilla" element={<Squad />} />
-                <Route path="/equips" element={<Teams />} />
+                <Route path="/equips" element={<Navigate to="/jornades" replace />} />
                 <Route
                   path="/formularis"
                   element={

@@ -13,6 +13,7 @@ export default function Pitch({ slots, onSlotClick }) {
           <PlayerBadge
             name={p.name}
             position={p.position}
+            dorsal={p.dorsal}
             totalPoints={p.totalPoints}
             isForSale={p.isForSale}
             highlight

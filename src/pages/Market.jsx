@@ -2,17 +2,32 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { supabase } from '../lib/supabaseClient'
 import { useAuth } from '../context/AuthContext'
+import { resolveExpiredMarketListings } from '../lib/marketUtils'
+import { getMockMarketData } from '../lib/mockData'
 import Topbar from '../components/Topbar'
 import Toast from '../components/Toast'
+import Jersey from '../components/Jersey'
+import DemoBanner from '../components/DemoBanner'
 
 function timeLeft(expiresAt) {
   if (!expiresAt) return null
   const diffMs = new Date(expiresAt).getTime() - Date.now()
-  if (diffMs <= 0) return 'Expira avui'
+  if (diffMs <= 0) return 'Expirat'
   const days = Math.floor(diffMs / (1000 * 60 * 60 * 24))
   const hours = Math.floor((diffMs % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60))
-  if (days > 0) return `${days}d ${hours}h`
-  return `${hours}h`
+  const minutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60))
+
+  if (days > 0) return `${days}d ${hours}h ${minutes}m`
+  if (hours > 0) return `${hours}h ${minutes}m`
+  if (minutes > 0) return `${minutes}m`
+  return '< 1m'
+}
+
+function getPlayerTotalPoints(player) {
+  if (!player?.player_matchday_stats || !Array.isArray(player.player_matchday_stats)) return 0
+  return player.player_matchday_stats
+    .filter((s) => !s.matchdays?.is_extra)
+    .reduce((sum, s) => sum + (Number(s.points) || 0), 0)
 }
 
 const POS_BADGES = {
@@ -52,12 +67,29 @@ export default function Market() {
   async function loadData() {
     setLoading(true)
     try {
+      if (!manager) {
+        setListings(getMockMarketData())
+        setSentOffers([])
+        setReceivedOffers([])
+        setLoading(false)
+        return
+      }
+
+      // 0. Resoldre fitxes expirades (subhastes de fitxes del club i retirada de jugadors expirats)
+      await resolveExpiredMarketListings()
+
       // 1. Carregar fitxes del mercat (status = 'market')
       const { data: cardsData, error: cardsErr } = await supabase
         .from('fantasy_cards')
         .select(`
           id, current_price, status, market_listed_at, market_expires_at, owner_manager_id,
-          club_players ( id, full_name, position, club_teams ( id, name ) ),
+          club_players (
+            id, full_name, position, dorsal, club_teams ( id, name ),
+            player_matchday_stats (
+              points,
+              matchdays ( id, is_extra )
+            )
+          ),
           managers:owner_manager_id ( id, display_name, avatar_emoji )
         `)
         .eq('status', 'market')
@@ -69,7 +101,13 @@ export default function Market() {
           .from('fantasy_cards')
           .select(`
             id, current_price, status, market_listed_at, market_expires_at, owner_manager_id,
-            club_players ( id, full_name, position, club_teams ( id, name ) )
+            club_players (
+              id, full_name, position, dorsal, club_teams ( id, name ),
+              player_matchday_stats (
+                points,
+                matchdays ( id, is_extra )
+              )
+            )
           `)
           .eq('status', 'market')
           .order('current_price', { ascending: true })
@@ -89,7 +127,13 @@ export default function Market() {
               id, fantasy_card_id, amount, counter_amount, counter_by, last_rejected_counter, status, created_at,
               fantasy_cards (
                 id, current_price, market_expires_at, owner_manager_id, status,
-                club_players ( id, full_name, position, club_teams ( id, name ) ),
+                club_players (
+                  id, full_name, position, dorsal, club_teams ( id, name ),
+                  player_matchday_stats (
+                    points,
+                    matchdays ( id, is_extra )
+                  )
+                ),
                 managers:owner_manager_id ( id, display_name, avatar_emoji )
               )
             `)
@@ -106,7 +150,13 @@ export default function Market() {
                 id, fantasy_card_id, amount, status, created_at,
                 fantasy_cards (
                   id, current_price, market_expires_at, owner_manager_id, status,
-                  club_players ( id, full_name, position, club_teams ( id, name ) )
+                  club_players (
+                    id, full_name, position, dorsal, club_teams ( id, name ),
+                    player_matchday_stats (
+                      points,
+                      matchdays ( id, is_extra )
+                    )
+                  )
                 )
               `)
               .eq('bidder_manager_id', manager.id)
@@ -135,7 +185,13 @@ export default function Market() {
                 managers:bidder_manager_id ( id, display_name, avatar_emoji, budget ),
                 fantasy_cards (
                   id, current_price, market_expires_at, owner_manager_id, status,
-                  club_players ( id, full_name, position, club_teams ( id, name ) )
+                  club_players (
+                    id, full_name, position, dorsal, club_teams ( id, name ),
+                    player_matchday_stats (
+                      points,
+                      matchdays ( id, is_extra )
+                    )
+                  )
                 )
               `)
               .in('fantasy_card_id', myCardIds)
@@ -152,7 +208,13 @@ export default function Market() {
                   managers:bidder_manager_id ( id, display_name, avatar_emoji, budget ),
                   fantasy_cards (
                     id, current_price, market_expires_at, owner_manager_id, status,
-                    club_players ( id, full_name, position, club_teams ( id, name ) )
+                    club_players (
+                      id, full_name, position, dorsal, club_teams ( id, name ),
+                      player_matchday_stats (
+                        points,
+                        matchdays ( id, is_extra )
+                      )
+                    )
                   )
                 `)
                 .in('fantasy_card_id', myCardIds)
@@ -192,7 +254,13 @@ export default function Market() {
 
   // Llistat filtrat de vendes
   const filteredListings = useMemo(() => {
+    const now = Date.now()
     return listings.filter((card) => {
+      // Excloure jugadors que ja hagin expirat del mercat
+      if (card.market_expires_at) {
+        const expTime = new Date(card.market_expires_at).getTime()
+        if (!isNaN(expTime) && expTime <= now) return false
+      }
       const player = card.club_players
       const nameMatch = !searchTerm || player?.full_name?.toLowerCase().includes(searchTerm.toLowerCase())
       const posMatch = posFilter === 'ALL' || player?.position?.toUpperCase() === posFilter
@@ -486,6 +554,8 @@ export default function Market() {
         subtitle="Compra, ven jugadors i gestiona les teves ofertes i contraofertes"
       />
 
+      <DemoBanner className="mx-4 mt-4 sm:mx-8 sm:mt-6" />
+
       {/* Navegació entre Pestanyes: Vendes vs Ofertes */}
       <div className="px-4 pt-4 sm:px-8 sm:pt-6 flex gap-2 border-b border-base-border overflow-x-auto pb-1 -mb-px">
         <button
@@ -613,6 +683,7 @@ export default function Market() {
                   const playerTeamId = player?.club_teams?.id
                   const isForbiddenTeam = forbiddenTeamIds.has(playerTeamId)
                   const isOwnPlayedTeam = manager?.player_team_id === playerTeamId
+                  const totalPts = getPlayerTotalPoints(player)
 
                   return (
                     <div
@@ -630,21 +701,30 @@ export default function Market() {
                       <div>
                         {/* Capçalera de la targeta */}
                         <div className="flex items-start justify-between gap-2">
-                          <div className="min-w-0">
-                            <div className="flex items-center gap-2">
-                              <p className="font-display font-bold text-ink text-base truncate">
+                          <div className="flex items-center gap-3 min-w-0 flex-1">
+                            <Jersey number={player?.dorsal} className="w-14 h-14 sm:w-16 sm:h-16 shrink-0" />
+                            <div className="min-w-0 flex-1">
+                              <p className="font-display font-bold text-ink text-lg sm:text-xl truncate leading-tight">
                                 {player?.full_name}
                               </p>
+                              <p className="text-xs text-ink-dim mt-0.5 truncate">
+                                {player?.club_teams?.name || 'Club'}
+                              </p>
                             </div>
-                            <p className="text-xs text-ink-dim mt-0.5 truncate">
-                              {player?.club_teams?.name || 'Club'}
-                            </p>
                           </div>
 
-                          <span className={`text-[10px] sm:text-[11px] px-2.5 py-0.5 rounded-full border font-semibold shrink-0 flex items-center gap-1 ${posBadge}`}>
-                            <span>{player?.position}</span>
-                            <span className="select-none">{POS_EMOJIS[pos] || '⚽'}</span>
-                          </span>
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            <span
+                              title={`Punts acumulats: ${totalPts} pts (jornades normals)`}
+                              className="min-w-[26px] h-6 sm:min-w-[28px] sm:h-7 px-1.5 rounded-full text-xs font-display font-bold bg-yellow-400 text-black border border-yellow-300 shadow-sm flex items-center justify-center select-none"
+                            >
+                              {totalPts}
+                            </span>
+                            <span className={`text-[10px] sm:text-[11px] px-2.5 py-1 rounded-full border font-semibold flex items-center gap-1 ${posBadge}`}>
+                              <span>{player?.position}</span>
+                              <span className="select-none">{POS_EMOJIS[pos] || '⚽'}</span>
+                            </span>
+                          </div>
                         </div>
 
                         {/* Preu i temps restant */}
@@ -700,7 +780,13 @@ export default function Market() {
                         ) : (
                           <button
                             type="button"
-                            onClick={() => setSelectedCardForOffer(card)}
+                            onClick={() => {
+                              if (!manager) {
+                                setToast({ msg: "Has d'iniciar sessió per poder fer ofertes al mercat.", type: 'err' })
+                                return
+                              }
+                              setSelectedCardForOffer(card)
+                            }}
                             className={`w-full py-2.5 px-4 rounded-xl font-semibold text-xs sm:text-sm min-h-[44px] flex items-center justify-center gap-1.5 transition-all ${
                               myOffer
                                 ? 'bg-accent/20 hover:bg-accent/30 text-accent border border-accent/40'
@@ -756,6 +842,7 @@ export default function Market() {
                     const pos = player?.position?.toUpperCase()
                     const posBadge = POS_BADGES[pos] || 'bg-base-raised text-ink border-base-border'
                     const isCountered = offer.status === 'countered'
+                    const totalPts = getPlayerTotalPoints(player)
 
                     return (
                       <div
@@ -765,18 +852,29 @@ export default function Market() {
                         <div className="space-y-3">
                           {/* Capçalera jugador */}
                           <div className="flex items-start justify-between gap-2 border-b border-base-border/70 pb-3">
-                            <div className="min-w-0">
-                              <p className="font-display font-bold text-ink text-base truncate">
-                                {player?.full_name}
-                              </p>
-                              <p className="text-xs text-ink-dim mt-0.5 truncate">
-                                {player?.club_teams?.name || 'Club'} · Valor: <strong className="text-accent">{card?.current_price}M</strong>
-                              </p>
+                            <div className="flex items-center gap-3 min-w-0 flex-1">
+                              <Jersey number={player?.dorsal} className="w-14 h-14 sm:w-16 sm:h-16 shrink-0" />
+                              <div className="min-w-0 flex-1">
+                                <p className="font-display font-bold text-ink text-lg sm:text-xl truncate leading-tight">
+                                  {player?.full_name}
+                                </p>
+                                <p className="text-xs text-ink-dim mt-0.5 truncate">
+                                  {player?.club_teams?.name || 'Club'} · Valor: <strong className="text-accent">{card?.current_price}M</strong>
+                                </p>
+                              </div>
                             </div>
-                            <span className={`text-[10px] sm:text-[11px] px-2.5 py-0.5 rounded-full border font-semibold shrink-0 flex items-center gap-1 ${posBadge}`}>
-                              <span>{player?.position}</span>
-                              <span className="select-none">{POS_EMOJIS[pos] || '⚽'}</span>
-                            </span>
+                            <div className="flex items-center gap-1.5 shrink-0">
+                              <span
+                                title={`Punts acumulats: ${totalPts} pts (jornades normals)`}
+                                className="min-w-[26px] h-6 sm:min-w-[28px] sm:h-7 px-1.5 rounded-full text-xs font-display font-bold bg-yellow-400 text-black border border-yellow-300 shadow-sm flex items-center justify-center select-none"
+                              >
+                                {totalPts}
+                              </span>
+                              <span className={`text-[10px] sm:text-[11px] px-2.5 py-1 rounded-full border font-semibold flex items-center gap-1 ${posBadge}`}>
+                                <span>{player?.position}</span>
+                                <span className="select-none">{POS_EMOJIS[pos] || '⚽'}</span>
+                              </span>
+                            </div>
                           </div>
 
                           {/* Dades del postor i de l'oferta */}
@@ -894,6 +992,7 @@ export default function Market() {
                       const pos = player?.position?.toUpperCase()
                       const posBadge = POS_BADGES[pos] || 'bg-base-raised text-ink border-base-border'
                       const isCountered = offer.status === 'countered'
+                      const totalPts = getPlayerTotalPoints(player)
 
                       return (
                         <div
@@ -907,18 +1006,29 @@ export default function Market() {
                           <div className="space-y-3">
                             {/* Capçalera */}
                             <div className="flex items-start justify-between gap-2 border-b border-base-border/70 pb-3">
-                              <div className="min-w-0">
-                                <p className="font-display font-bold text-ink text-base truncate">
-                                  {player?.full_name || 'Jugador'}
-                                </p>
-                                <p className="text-xs text-ink-dim mt-0.5 truncate">
-                                  {player?.club_teams?.name || 'Club'} · Propietari: <strong className="text-ink">{seller?.display_name || 'Club (Lliure)'}</strong>
-                                </p>
+                              <div className="flex items-center gap-3 min-w-0 flex-1">
+                                <Jersey number={player?.dorsal} className="w-14 h-14 sm:w-16 sm:h-16 shrink-0" />
+                                <div className="min-w-0 flex-1">
+                                  <p className="font-display font-bold text-ink text-lg sm:text-xl truncate leading-tight">
+                                    {player?.full_name || 'Jugador'}
+                                  </p>
+                                  <p className="text-xs text-ink-dim mt-0.5 truncate">
+                                    {player?.club_teams?.name || 'Club'} · Propietari: <strong className="text-ink">{seller?.display_name || 'Club (Lliure)'}</strong>
+                                  </p>
+                                </div>
                               </div>
-                              <span className={`text-[10px] sm:text-[11px] px-2.5 py-0.5 rounded-full border font-semibold shrink-0 flex items-center gap-1 ${posBadge}`}>
-                                <span>{player?.position}</span>
-                                <span className="select-none">{POS_EMOJIS[pos] || '⚽'}</span>
-                              </span>
+                              <div className="flex items-center gap-1.5 shrink-0">
+                                <span
+                                  title={`Punts acumulats: ${totalPts} pts (jornades normals)`}
+                                  className="min-w-[26px] h-6 sm:min-w-[28px] sm:h-7 px-1.5 rounded-full text-xs font-display font-bold bg-yellow-400 text-black border border-yellow-300 shadow-sm flex items-center justify-center select-none"
+                                >
+                                  {totalPts}
+                                </span>
+                                <span className={`text-[10px] sm:text-[11px] px-2.5 py-1 rounded-full border font-semibold flex items-center gap-1 ${posBadge}`}>
+                                  <span>{player?.position}</span>
+                                  <span className="select-none">{POS_EMOJIS[pos] || '⚽'}</span>
+                                </span>
+                              </div>
                             </div>
 
                             {/* Oferta realitzada */}
@@ -1044,23 +1154,26 @@ export default function Market() {
                           <div className="space-y-3">
                             {/* Capçalera */}
                             <div className="flex items-start justify-between gap-2 border-b border-base-border/70 pb-3">
-                              <div className="min-w-0">
-                                <div className="flex items-center gap-2">
-                                  <p className="font-display font-bold text-ink text-base truncate">
-                                    {player?.full_name || 'Jugador'}
+                              <div className="flex items-center gap-3 min-w-0 flex-1">
+                                <Jersey number={player?.dorsal} className="w-12 h-12 sm:w-14 sm:h-14 shrink-0" />
+                                <div className="min-w-0 flex-1">
+                                  <div className="flex items-center gap-2">
+                                    <p className="font-display font-bold text-ink text-base truncate">
+                                      {player?.full_name || 'Jugador'}
+                                    </p>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleDismissResolvedOffer(offer)}
+                                      title="Descartar avís"
+                                      className="text-ink-faint hover:text-ink text-xs p-1 rounded-lg hover:bg-base-surface transition-colors"
+                                    >
+                                      ✕
+                                    </button>
+                                  </div>
+                                  <p className="text-xs text-ink-dim mt-0.5 truncate">
+                                    {player?.club_teams?.name || 'Club'} · Propietari: <strong className="text-ink">{seller?.display_name || 'Club (Lliure)'}</strong>
                                   </p>
-                                  <button
-                                    type="button"
-                                    onClick={() => handleDismissResolvedOffer(offer)}
-                                    title="Descartar avís"
-                                    className="text-ink-faint hover:text-ink text-xs p-1 rounded-lg hover:bg-base-surface transition-colors"
-                                  >
-                                    ✕
-                                  </button>
                                 </div>
-                                <p className="text-xs text-ink-dim mt-0.5 truncate">
-                                  {player?.club_teams?.name || 'Club'} · Propietari: <strong className="text-ink">{seller?.display_name || 'Club (Lliure)'}</strong>
-                                </p>
                               </div>
                               <div className="flex items-center gap-1.5 shrink-0">
                                 {isAccepted ? (
@@ -1377,9 +1490,12 @@ function CounterOfferModal({ offer, manager, onClose, onSuccess }) {
 
         {/* Informació del jugador i oferta prèvia */}
         <div className="p-3.5 rounded-xl bg-base-raised border border-base-border/70 space-y-2">
-          <div className="flex items-center justify-between">
-            <span className="font-semibold text-sm text-ink">{player?.full_name}</span>
-            <span className="text-xs text-ink-dim">{player?.club_teams?.name}</span>
+          <div className="flex items-center gap-3">
+            <Jersey number={player?.dorsal} className="w-12 h-12 shrink-0" />
+            <div className="flex-1 min-w-0 flex items-center justify-between">
+              <span className="font-semibold text-sm text-ink truncate">{player?.full_name}</span>
+              <span className="text-xs text-ink-dim shrink-0">{player?.club_teams?.name}</span>
+            </div>
           </div>
           <div className="flex items-center justify-between text-xs pt-1 border-t border-base-border/60">
             <span className="text-ink-dim">Oferta rebuda del comprador:</span>
@@ -1655,15 +1771,26 @@ function DirectOfferModal({ card, existingOffer, userOffers = [], manager, forbi
 
         {/* Informació del jugador */}
         <div className="p-3.5 rounded-xl bg-base-raised border border-base-border/70 flex items-center justify-between gap-3">
-          <div className="min-w-0">
-            <h4 className="font-display font-semibold text-base text-ink truncate">
-              {player?.full_name}
-            </h4>
-            <p className="text-xs text-ink-dim mt-0.5 flex items-center gap-1.5">
-              <span>{player?.position} {POS_EMOJIS[player?.position?.toUpperCase()]}</span>
-              <span>·</span>
-              <span>{player?.club_teams?.name}</span>
-            </p>
+          <div className="flex items-center gap-3.5 min-w-0 flex-1">
+            <Jersey number={player?.dorsal} className="w-14 h-14 sm:w-16 sm:h-16 shrink-0" />
+            <div className="min-w-0 flex-1">
+              <h4 className="font-display font-bold text-base sm:text-lg md:text-xl text-ink leading-snug break-words">
+                {player?.full_name}
+              </h4>
+              <div className="flex items-center gap-2 mt-1 flex-wrap">
+                <span
+                  title={`Punts acumulats: ${getPlayerTotalPoints(player)} pts (jornades normals)`}
+                  className="min-w-[24px] h-5 sm:h-6 px-1.5 rounded-full text-[11px] sm:text-xs font-display font-bold bg-yellow-400 text-black border border-yellow-300 shadow-sm flex items-center justify-center select-none"
+                >
+                  {getPlayerTotalPoints(player)} pts
+                </span>
+                <p className="text-xs text-ink-dim flex items-center gap-1.5 break-words">
+                  <span>{player?.position} {POS_EMOJIS[player?.position?.toUpperCase()]}</span>
+                  <span>·</span>
+                  <span>{player?.club_teams?.name}</span>
+                </p>
+              </div>
+            </div>
           </div>
           <div className="text-right shrink-0">
             <p className="text-[11px] text-ink-dim">Preu de sortida</p>

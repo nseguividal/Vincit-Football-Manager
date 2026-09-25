@@ -25,8 +25,8 @@ export default function Toast({ message, type = 'ok', onClose, duration = 5000 }
             : 'bg-[#2d1414]/95 border-danger/50 text-danger shadow-danger/20'
         }`}
       >
-        <div className="flex items-center min-w-0">
-          <span className={`text-xs sm:text-sm font-semibold block truncate sm:whitespace-normal ${isWarn ? 'text-amber-200' : 'text-ink'}`}>
+        <div className="flex items-center min-w-0 flex-1">
+          <span className={`text-xs sm:text-sm font-semibold block whitespace-normal break-words leading-snug ${isWarn ? 'text-amber-200' : 'text-ink'}`}>
             {message}
           </span>
         </div>
