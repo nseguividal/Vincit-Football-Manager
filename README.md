@@ -1,6 +1,6 @@
 # Vincit Fantasy Manager ⚽
 
-Aplicació web tipus **Fantasy Football** personalitzada exclusivament per a la comunitat i equips del club de futbol sala **CE Vincit - Sant Gervasi**.
+Aplicació web tipus **Fantasy Football** personalitzada exclusivament per a la comunitat i equips del club de futbol sala **C.E. Vincit**.
 
 🌐 **Accedeix a l'aplicació web:** [https://fantasyvincit.vercel.app/](https://fantasyvincit.vercel.app/)
 
